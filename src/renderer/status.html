@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Flow</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: transparent;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+      -webkit-app-region: no-drag;
+    }
+
+    /* ── Pill ── */
+    #pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 18px;
+      border-radius: 100px;
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.15);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2);
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      transform: translateY(-8px);
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+
+    #pill.visible { transform: translateY(0); opacity: 1; }
+
+    /* State colours */
+    #pill.idle          { background: rgba(30,30,30,0.85); }
+    #pill.listening     { background: rgba(20,20,20,0.92); }
+    #pill.processing    { background: rgba(18,18,18,0.92); }
+    #pill.done          { background: rgba(12,60,30,0.92); }
+    #pill.error         { background: rgba(80,20,20,0.92); }
+
+    /* ── Mic icon / waveform ── */
+    #icon {
+      position: relative;
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    #icon svg { width: 20px; height: 20px; }
+
+    /* listening pulse ring */
+    #pulse {
+      position: absolute;
+      inset: -5px;
+      border-radius: 50%;
+      border: 2px solid rgba(99,179,131,0.6);
+      animation: pulse-ring 1.4s ease-out infinite;
+      display: none;
+    }
+
+    @keyframes pulse-ring {
+      0%   { transform: scale(0.9); opacity: 0.8; }
+      100% { transform: scale(1.8); opacity: 0; }
+    }
+
+    .listening #pulse { display: block; }
+
+    /* ── Waveform bars ── */
+    #bars {
+      display: none;
+      align-items: center;
+      gap: 3px;
+      height: 20px;
+    }
+
+    .listening #bars { display: flex; }
+
+    .bar {
+      width: 3px;
+      border-radius: 2px;
+      background: linear-gradient(180deg, #68d391, #38a169);
+      animation: bounce 0.9s ease-in-out infinite alternate;
+      transform-origin: bottom;
+    }
+    .bar:nth-child(1) { height: 6px;  animation-delay: 0.0s; }
+    .bar:nth-child(2) { height: 14px; animation-delay: 0.15s; }
+    .bar:nth-child(3) { height: 20px; animation-delay: 0.05s; }
+    .bar:nth-child(4) { height: 12px; animation-delay: 0.20s; }
+    .bar:nth-child(5) { height: 8px;  animation-delay: 0.10s; }
+
+    @keyframes bounce {
+      0%   { transform: scaleY(0.4); }
+      100% { transform: scaleY(1); }
+    }
+
+    /* ── Spinner (processing) ── */
+    #spinner {
+      display: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.15);
+      border-top-color: #a78bfa;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    .processing #spinner { display: block; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Label ── */
+    #label {
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: rgba(255,255,255,0.90);
+      white-space: nowrap;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color 0.2s;
+    }
+
+    #subtext {
+      font-size: 11px;
+      color: rgba(255,255,255,0.45);
+      white-space: nowrap;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+      transition: opacity 0.2s;
+    }
+
+    .label-wrap {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .listening  #label { color: #68d391; }
+    .processing #label { color: #a78bfa; }
+    .done       #label { color: #68d391; }
+    .error      #label { color: #fc8181; }
+    .processing #subtext { color: rgba(167,139,250,0.6); }
+
+    /* hands-free badge */
+    #hf-badge {
+      display: none;
+      font-size: 10px;
+      font-weight: 600;
+      background: rgba(99,179,131,0.25);
+      color: #68d391;
+      padding: 2px 7px;
+      border-radius: 100px;
+      border: 1px solid rgba(99,179,131,0.4);
+    }
+
+    .listening.handsfree #hf-badge { display: inline; }
+  </style>
+</head>
+<body>
+  <div id="pill" class="idle">
+    <!-- mic svg -->
+    <div id="icon">
+      <div id="pulse"></div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           style="color:rgba(255,255,255,0.8)">
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+        <line x1="8"  y1="22" x2="16" y2="22"/>
+      </svg>
+    </div>
+
+    <!-- animated waveform bars (listening) -->
+    <div id="bars">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div>
+    </div>
+
+    <!-- spinner (processing) -->
+    <div id="spinner"></div>
+
+    <div class="label-wrap">
+      <span id="label">Voice Flow</span>
+      <span id="subtext"></span>
+    </div>
+    <span id="hf-badge">LOCKED</span>
+  </div>
+
+  <script src="statusRenderer.js"></script>
+</body>
+</html>
