@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "author": "Vilian",
   "license": "MIT",

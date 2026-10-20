@@ -29,7 +29,52 @@ function loadGeneral() {
   bind('sounds',          s.sounds,              (v) => save({ sounds: v }));
   bind('launchAtLogin',   s.launchAtLogin !== false, (v) => save({ launchAtLogin: v }));
   bindSelect('pasteMethod',s.pasteMethod,        (v) => save({ pasteMethod: v }));
+  bindSelect('maxDuration', String(s.maxRecordingSec || 300), (v) => save({ maxRecordingSec: Number(v) }));
   bindText('userName',   s.userName || '',       (v) => save({ userName: v }));
+  loadMicrophones(s.microphoneId || 'default');
+}
+
+/** Fill the microphone dropdown with the available inputs. */
+async function loadMicrophones(selected) {
+  const sel = document.getElementById('microphone');
+  if (!sel) return;
+
+  let devices = await listInputs();
+  if (!devices.some((d) => d.label)) {
+    // Labels are hidden until the microphone permission was granted.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      devices = await listInputs();
+    } catch { /* permission denied — keep the default entry only */ }
+  }
+
+  const current = selected && selected !== 'default'
+    ? devices.find((d) => d.deviceId === selected || d.label === selected)
+    : null;
+
+  sel.innerHTML = '';
+  sel.appendChild(new Option('System default', 'default'));
+  devices.forEach((d) => {
+    const name = d.label || `Microphone ${d.deviceId.slice(0, 8)}`;
+    sel.appendChild(new Option(name, d.deviceId));
+  });
+
+  sel.value = current ? current.deviceId : (selected || 'default');
+  if (sel.value !== (current ? current.deviceId : (selected || 'default'))) {
+    // The stored device is gone — fall back to the default.
+    sel.value = 'default';
+  }
+  sel.onchange = () => save({ microphoneId: sel.value });
+}
+
+async function listInputs() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === 'audioinput');
+  } catch {
+    return [];
+  }
 }
 
 // ── Shortcuts ─────────────────────────────────────────────────────────────────
@@ -184,9 +229,8 @@ function loadApiKey(s) {
 
   link?.addEventListener('click', (e) => {
     e.preventDefault();
-    // open in default browser via shell
-    const url = 'https://aistudio.google.com/apikey';
-    window.open(url, '_blank');
+    // Open in the real browser (not in an Electron window)
+    window.vf.openExternal('https://aistudio.google.com/apikey');
   });
 }
 

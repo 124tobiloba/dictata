@@ -7,23 +7,28 @@
  *   renderer → main: 'rec:chunk' (Float32Array), 'rec:done'
  *
  * Encodes the final PCM buffer as a 16-bit 16 kHz mono WAV and
- * emits { wav: Buffer, durationMs: number } when done.
+ * emits { wav: Buffer, durationMs: number, timedOut: boolean } when done.
  */
 
 const { EventEmitter } = require('events');
 const { ipcMain } = require('electron');
+const { encodeWav } = require('./wav');
 
 const SAMPLE_RATE = 16000;
 const CHUNK_SAMPLES = 640;   // 40 ms per worklet chunk
+const DEFAULT_MAX_MS = 5 * 60 * 1000;   // hard cap on one dictation
 
 class Recorder extends EventEmitter {
-  constructor() {
+  constructor(opts = {}) {
     super();
     this._statusWindow = null;
     this._chunks = [];          // Float32Array[]
     this._recording = false;
     this._registered = false;
     this._startedAt = 0;
+    this._timedOut = false;
+    this._maxTimer = null;
+    this.maxMs = opts.maxMs ?? DEFAULT_MAX_MS;
   }
 
   /** Called once the status window is created. */
@@ -43,16 +48,32 @@ class Recorder extends EventEmitter {
     ipcMain.on('rec:error', (_e, msg) => {
       this._recording = false;
       this._chunks = [];
+      clearTimeout(this._maxTimer);
       this.emit('error', new Error(msg));
     });
+  }
+
+  setMaxMs(ms) {
+    this.maxMs = Number(ms) > 0 ? Number(ms) : DEFAULT_MAX_MS;
   }
 
   start() {
     if (this._recording) return;
     this._recording = true;
     this._chunks = [];
+    this._timedOut = false;
     this._startedAt = Date.now();
     this._statusWindow?.webContents.send('rec:start');
+
+    // Hard cap: a dictation can never grow without bound. Past this the
+    // audio would exceed what the model accepts in a single request.
+    clearTimeout(this._maxTimer);
+    this._maxTimer = setTimeout(() => {
+      if (!this._recording) return;
+      this._timedOut = true;
+      console.warn(`[recorder] max length reached (${this.maxMs} ms) — stopping`);
+      this.stop();
+    }, this.maxMs);
   }
 
   stop() {
@@ -65,6 +86,7 @@ class Recorder extends EventEmitter {
 
   _finish(source) {
     clearTimeout(this._stopTimer);
+    clearTimeout(this._maxTimer);
     if (!this._recording) return;
     this._recording = false;
     const durationMs = Date.now() - this._startedAt;
@@ -79,13 +101,14 @@ class Recorder extends EventEmitter {
     }
     const wav = this._buildWav();
     this._chunks = [];
-    this.emit('done', { wav, durationMs });
+    this.emit('done', { wav, durationMs, timedOut: this._timedOut });
   }
 
   /** Cancel immediately without transcribing. */
   cancel() {
     if (!this._recording) return;
     clearTimeout(this._stopTimer);
+    clearTimeout(this._maxTimer);
     this._recording = false;
     this._chunks = [];
     this._statusWindow?.webContents.send('rec:cancel');
@@ -94,37 +117,8 @@ class Recorder extends EventEmitter {
   // ── WAV encoding ──────────────────────────────────────────────────────────
 
   _buildWav() {
-    const totalSamples = this._chunks.reduce((s, c) => s + c.length, 0);
-    const byteLen = totalSamples * 2;                    // 16-bit = 2 bytes/sample
-    const buf = Buffer.allocUnsafe(44 + byteLen);
-
-    // RIFF header
-    buf.write('RIFF', 0);
-    buf.writeUInt32LE(36 + byteLen, 4);
-    buf.write('WAVE', 8);
-    // fmt chunk
-    buf.write('fmt ', 12);
-    buf.writeUInt32LE(16, 16);           // chunk size
-    buf.writeUInt16LE(1, 20);            // PCM
-    buf.writeUInt16LE(1, 22);            // channels
-    buf.writeUInt32LE(SAMPLE_RATE, 24);  // sample rate
-    buf.writeUInt32LE(SAMPLE_RATE * 2, 28); // byte rate
-    buf.writeUInt16LE(2, 32);            // block align
-    buf.writeUInt16LE(16, 34);           // bits per sample
-    // data chunk
-    buf.write('data', 36);
-    buf.writeUInt32LE(byteLen, 40);
-
-    let offset = 44;
-    for (const chunk of this._chunks) {
-      for (let i = 0; i < chunk.length; i++) {
-        const s = Math.max(-1, Math.min(1, chunk[i]));
-        buf.writeInt16LE(s < 0 ? s * 0x8000 : s * 0x7fff, offset);
-        offset += 2;
-      }
-    }
-    return buf;
+    return encodeWav(this._chunks, SAMPLE_RATE);
   }
 }
 
-module.exports = { Recorder };
+module.exports = { Recorder, SAMPLE_RATE, DEFAULT_MAX_MS };

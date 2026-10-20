@@ -4,20 +4,16 @@
  * No native add-ons needed. Uses Electron accelerator strings which work
  * system-wide even when the app window has no focus.
  *
- * PTT behaviour (toggle mode, like Wispr's "click to talk"):
- *   • First press of pushToTalk → emit 'ptt-start'
- *   • Second press of pushToTalk → emit 'ptt-stop'
- *   • Press pushToTalk twice within 400 ms (double-tap) → emit 'handsfree', true
+ * The push-to-talk / hands-free interaction rules live in ./ptt.js (pure
+ * and unit-tested); this module only translates key presses into actions.
  *
- * Hands-free is also available as a dedicated shortcut.
- * Cancel (Escape) aborts the current recording.
- * pasteLast re-pastes the previous transcript.
+ * Actions emitted on 'action':
+ *   'start' | 'lock' | 'start-lock' | 'stop' | 'cancel'
  */
 
 const { globalShortcut } = require('electron');
 const { EventEmitter } = require('events');
-
-const DOUBLE_TAP_MS = 400;
+const { PttState, DEFAULT_DOUBLE_TAP_MS } = require('./ptt');
 
 /**
  * Convert our simple chord format (['Ctrl','Shift','Space'])
@@ -38,9 +34,9 @@ class HotkeyService extends EventEmitter {
   constructor(store) {
     super();
     this._store = store;
-    this._pttActive = false;
-    this._lastPttTap = 0;
-    this._handsFreeActive = false;
+    // Live config so a settings change takes effect without a restart.
+    this._config = { doubleTapLocks: store.settings.doubleTapLocks };
+    this._ptt = new PttState({ config: this._config, doubleTapMs: DEFAULT_DOUBLE_TAP_MS });
     this._registered = [];
   }
 
@@ -61,53 +57,25 @@ class HotkeyService extends EventEmitter {
     const s = this._store.settings.shortcuts;
 
     // ── Push-to-talk (toggle) ─────────────────────────────────────────────────
-    this._try(s.pushToTalk, () => {
-      const now = Date.now();
-      const doubleTap = this._store.settings.doubleTapLocks &&
-                        (now - this._lastPttTap) < DOUBLE_TAP_MS;
-      this._lastPttTap = now;
-
-      if (doubleTap && !this._pttActive) {
-        this._handsFreeActive = true;
-        this.emit('handsfree', true);
-        return;
-      }
-
-      if (!this._pttActive) {
-        this._pttActive = true;
-        this.emit('ptt-start');
-      } else {
-        this._pttActive = false;
-        this.emit('ptt-stop');
-      }
-    });
+    this._try(s.pushToTalk, () => this._emit(this._ptt.press()));
 
     // ── Hands-free toggle ─────────────────────────────────────────────────────
-    this._try(s.handsFree, () => {
-      this._handsFreeActive = !this._handsFreeActive;
-      if (this._handsFreeActive && !this._pttActive) {
-        this._pttActive = true;
-        this.emit('ptt-start');
-      } else if (!this._handsFreeActive && this._pttActive) {
-        this._pttActive = false;
-        this.emit('ptt-stop');
-      }
-      this.emit('handsfree', this._handsFreeActive);
-    });
+    this._try(s.handsFree, () => this._emit(this._ptt.toggleHandsFree()));
 
     // ── Cancel ────────────────────────────────────────────────────────────────
     this._try(s.cancel, () => {
-      if (this._pttActive) {
-        this._pttActive = false;
-        this._handsFreeActive = false;
-        this.emit('cancel');
-      }
+      const action = this._ptt.cancel();
+      if (action) this._emit(action);
     });
 
     // ── Paste last ────────────────────────────────────────────────────────────
     this._try(s.pasteLast, () => {
       this.emit('paste-last');
     });
+  }
+
+  _emit(action) {
+    this.emit('action', action);
   }
 
   _try(chord, handler) {
@@ -127,18 +95,14 @@ class HotkeyService extends EventEmitter {
 
   /** Call after settings change to re-register with new chords. */
   reload() {
+    this._config.doubleTapLocks = !!this._store.settings.doubleTapLocks;
     this._register();
   }
 
-  endHandsFree() {
-    this._handsFreeActive = false;
-    this._pttActive = false;
-    this.emit('handsfree', false);
-  }
-
-  setHandsFree(v) {
-    this._handsFreeActive = v;
+  /** Forget any in-flight interaction state (e.g. after an error). */
+  reset() {
+    this._ptt.reset();
   }
 }
 
-module.exports = { HotkeyService };
+module.exports = { HotkeyService, toAccelerator };

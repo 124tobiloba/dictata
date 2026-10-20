@@ -6,6 +6,8 @@
  *   LISTENING → (ptt-stop | hands-free OFF | done) → PROCESSING
  *   PROCESSING → (paste finished) → IDLE
  *   Any state → (cancel) → IDLE
+ *
+ * The push-to-talk / hands-free interaction rules live in ./ptt.js.
  */
 
 require('dotenv').config();
@@ -13,6 +15,7 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, ses
 const path = require('path');
 const crypto = require('crypto');
 
+const logger = require('./logger');
 const { Store } = require('./store');
 const { HotkeyService } = require('./hotkeys');
 const { Recorder } = require('./recorder');
@@ -29,7 +32,10 @@ let state = STATE.IDLE;
 let lastCleaned = '';
 let lastRaw = '';
 let handsFreeOn = false;
-let appNamePromise = Promise.resolve('');
+let targetPromise = Promise.resolve(null);   // foreground window at dictation time
+let lastTargetHwnd = 0;                       // where the text should go
+let activeAbort = null;                       // AbortController of the live request
+let sessionId = 0;                              // bumped for every recording session
 
 // ── Singletons ────────────────────────────────────────────────────────────────
 const store = new Store();
@@ -49,13 +55,23 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 
+// A crash in a tray app is invisible — log it and keep running.
+process.on('uncaughtException', (err) => {
+  console.error('[voice-flow] uncaught exception:', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[voice-flow] unhandled rejection:', err);
+});
+
 app.whenReady().then(() => {
+  logger.init(app);
   createStatusWindow();
   createTray();
   setupIPC();
   hotkeys.start();
   winHelper.start();
   applyLoginItem();
+  applyRecorderLimits();
   if (!getApiKey()) createSettingsWindow();   // first run: ask for the key
 });
 
@@ -70,6 +86,10 @@ function applyLoginItem() {
   app.setLoginItemSettings({ openAtLogin: !!store.settings.launchAtLogin });
 }
 
+function applyRecorderLimits() {
+  recorder.setMaxMs((Number(store.settings.maxRecordingSec) || 300) * 1000);
+}
+
 // Keep app alive even when all windows are closed (tray app).
 app.on('window-all-closed', (e) => e.preventDefault());
 
@@ -79,12 +99,15 @@ function createStatusWindow() {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media' || permission === 'microphone');
   });
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    return permission === 'media' || permission === 'microphone';
+  });
 
   const { width } = screen.getPrimaryDisplay().workAreaSize;
   statusWindow = new BrowserWindow({
     width: 320,
     height: 90,
-    x: Math.round((width - 300) / 2),
+    x: Math.round((width - 320) / 2),
     y: 32,
     frame: false,
     transparent: true,
@@ -108,6 +131,7 @@ function createStatusWindow() {
     console.error('[recorder]', err.message);
     state = STATE.IDLE;
     sendToStatus('vf:status', { state: 'error', message: err.message });
+    notifyError(err.message);
   });
 }
 
@@ -132,11 +156,16 @@ function createSettingsWindow() {
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
-function createHistoryWindow() {
+async function createHistoryWindow() {
   if (historyWindow && !historyWindow.isDestroyed()) {
     historyWindow.focus();
     return;
   }
+  // Remember where the user was BEFORE this window takes the focus, so
+  // "Paste again" can go back to their app.
+  const target = await winHelper.foregroundTarget();
+  if (target && !target.self && target.hwnd) lastTargetHwnd = target.hwnd;
+
   historyWindow = new BrowserWindow({
     width: 580,
     height: 700,
@@ -168,66 +197,101 @@ function updateTrayMenu() {
     { type: 'separator' },
     { label: `${stats.words.toLocaleString()} words dictated`, enabled: false },
     { type: 'separator' },
-    { label: 'History', click: createHistoryWindow },
-    { label: 'Settings', click: createSettingsWindow },
+    { label: 'History', click: () => createHistoryWindow() },
+    { label: 'Settings', click: () => createSettingsWindow() },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]));
 }
 
-// ── Hotkey events → state machine ─────────────────────────────────────────────
-hotkeys.on('ptt-start', () => {
-  if (state !== STATE.IDLE) return;
-  setState(STATE.LISTENING);
-  recorder.start();
-  appNamePromise = winHelper.foregroundApp().catch(() => '');
-});
+/** Surface an error that the 2-second pill would otherwise swallow. */
+function notifyError(message) {
+  try {
+    tray?.displayBalloon?.({
+      title: 'Voice Flow',
+      content: String(message).slice(0, 180),
+    });
+  } catch { /* not supported on this platform */ }
+}
 
-hotkeys.on('ptt-stop', () => {
-  if (state !== STATE.LISTENING) return;
-  recorder.stop();
-  setState(STATE.PROCESSING);
-});
+// ── Hotkey actions → state machine ───────────────────────────────────────────
+hotkeys.on('action', ({ action }) => {
+  switch (action) {
+    case 'start':
+    case 'start-lock':
+      if (state !== STATE.IDLE) return;
+      handsFreeOn = action === 'start-lock';
+      beginRecording();
+      break;
 
-hotkeys.on('handsfree', (on) => {
-  handsFreeOn = on;
-  if (on && state === STATE.IDLE) {
-    setState(STATE.LISTENING);
-    recorder.start();
-    appNamePromise = winHelper.foregroundApp().catch(() => '');
-  } else if (!on && state === STATE.LISTENING) {
-    recorder.stop();
-    setState(STATE.PROCESSING);
+    case 'lock':
+      // Second tap of a double-tap: keep recording, release the toggle.
+      handsFreeOn = true;
+      setState(STATE.LISTENING);
+      break;
+
+    case 'stop':
+      if (state !== STATE.LISTENING) return;
+      handsFreeOn = false;
+      recorder.stop();
+      setState(STATE.PROCESSING);
+      break;
+
+    case 'cancel':
+      cancelCurrent();
+      break;
   }
-});
-
-hotkeys.on('cancel', () => {
-  recorder.cancel();
-  setState(STATE.IDLE);
 });
 
 hotkeys.on('paste-last', () => {
   if (!lastCleaned) return;
-  pasteText({
-    text: lastCleaned,
-    restore: store.settings.restoreClipboard,
-    method: store.settings.pasteMethod,
-  }).catch(console.error);
+  pasteInto(lastCleaned).catch(console.error);
 });
 
+function beginRecording() {
+  sessionId++;
+  cancelActiveRequest();
+  setState(STATE.LISTENING);
+  recorder.start();
+  // The foreground window is looked up while the user is speaking, so the
+  // lookup cost is off the critical path.
+  targetPromise = winHelper.foregroundTarget().catch(() => null);
+}
+
+function cancelCurrent() {
+  cancelActiveRequest();
+  recorder.cancel();
+  setState(STATE.IDLE);
+}
+
+function cancelActiveRequest() {
+  if (!activeAbort) return;
+  try { activeAbort.abort(); } catch { /* ignore */ }
+  activeAbort = null;
+}
+
 // ── Recording done → Gemini → paste ──────────────────────────────────────────
-async function onRecordingDone({ wav, durationMs }) {
-  if (state !== STATE.PROCESSING) {
-    setState(STATE.IDLE);
+async function onRecordingDone({ wav, durationMs, timedOut }) {
+  const mySession = sessionId;
+  if (state !== STATE.PROCESSING || mySession !== sessionId) {
+    if (mySession === sessionId) setState(STATE.IDLE);
     return;
   }
 
   const tStart = Date.now();
   console.log(`[pipeline] recorded ${durationMs} ms, wav ${(wav?.length / 1024 || 0).toFixed(0)} KB`);
-  sendToStatus('vf:status', { state: 'processing', subtext: 'Transcribing…' });
+  sendToStatus('vf:status', {
+    state: 'processing',
+    subtext: timedOut ? 'Length limit reached — transcribing…' : 'Transcribing…',
+  });
 
-  // App name was looked up while the user was speaking
-  const appName = await appNamePromise;
+  // Where the text is going, and which app we are typing into.
+  const target = await targetPromise;
+  const appName = target && !target.self ? (target.name || '') : '';
+  if (target && !target.self && target.hwnd) lastTargetHwnd = target.hwnd;
+
+  const controller = new AbortController();
+  activeAbort = controller;
 
   try {
     const s = store.settings;
@@ -243,14 +307,18 @@ async function onRecordingDone({ wav, durationMs }) {
       dictionary: snap.dictionary,
       replacements: snap.replacements,
       prevCleaned: lastCleaned,
-      appName,
+      appName: s.appAwareStyle ? appName : '',
       textBefore: '',   // Phase 2: accessibility context
       textAfter: '',
+      signal: controller.signal,
       // Stream partial cleaned text to the pill in real time
       onPartial: (partial) => {
         sendToStatus('vf:status', { state: 'processing', subtext: partial.slice(0, 40) });
       },
     });
+
+    if (mySession !== sessionId) return;      // superseded by a newer session
+    if (controller.signal.aborted) return;   // cancelled while transcribing
 
     lastRaw = result.raw;
     lastCleaned = result.cleaned;
@@ -259,26 +327,66 @@ async function onRecordingDone({ wav, durationMs }) {
     store.addHistory({ id, raw: result.raw, cleaned: result.cleaned, durationMs, at: Date.now() });
     updateTrayMenu();
 
-    await pasteText({
-      text: result.cleaned,
-      restore: s.restoreClipboard,
-      method: s.pasteMethod,
-    });
+    const { pasted } = await pasteInto(result.cleaned);
 
     console.log(`[pipeline] stop → pasted in ${Date.now() - tStart} ms`);
-    sendToStatus('vf:status', { state: 'done', text: result.cleaned });
+    sendToStatus('vf:status', {
+      state: 'done',
+      text: result.cleaned,
+      message: result.truncated
+        ? 'Transcript cut off — try shorter dictations'
+        : (pasted ? '' : 'Text copied — press Ctrl+V in your app'),
+    });
+    if (!pasted) notifyError('Could not paste automatically — the text is on your clipboard.');
     notifyHistory();
   } catch (err) {
+    if (err?.message === 'Cancelled') {
+      console.log('[pipeline] cancelled');
+      return;
+    }
     console.error('[pipeline]', err);
     sendToStatus('vf:status', { state: 'error', message: err.message });
+    notifyError(err.message);
   } finally {
-    setState(STATE.IDLE);
+    if (activeAbort === controller) activeAbort = null;
+    // Only clear the state when this session is still the current one —
+    // a newer recording must not be interrupted by an old one finishing.
+    if (mySession === sessionId) setState(STATE.IDLE);
   }
+}
+
+/**
+ * Paste into the app the user was in. When one of our own windows has the
+ * focus (e.g. the History window) the remembered target window is focused
+ * first, so the text never lands in Voice Flow itself.
+ */
+async function pasteInto(text) {
+  const s = store.settings;
+  const fg = await winHelper.foregroundTarget();
+  let hwnd = 0;
+  let allowKeys = true;
+  if (fg && fg.self) {
+    // One of our own windows has the focus (e.g. the History window):
+    // go back to the app the user was in — or don't paste at all.
+    if (lastTargetHwnd) hwnd = lastTargetHwnd;
+    else allowKeys = false;
+  }
+  return pasteText({
+    text,
+    restore: s.restoreClipboard,
+    method: s.pasteMethod,
+    hwnd,
+    allowKeys,
+  });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function setState(s) {
   state = s;
+  if (s === STATE.IDLE) {
+    handsFreeOn = false;
+    hotkeys.reset();
+  }
   sendToStatus('vf:status', { state: s, handsFree: handsFreeOn });
 }
 
@@ -298,23 +406,32 @@ function notifyHistory() {
 function setupIPC() {
   // Settings
   ipcMain.handle('vf:get-store', () => store.snapshot());
+  ipcMain.handle('vf:get-settings', () => {
+    const s = store.settings;
+    return { sounds: !!s.sounds, microphoneId: s.microphoneId || 'default' };
+  });
   ipcMain.handle('vf:update-settings', (_e, patch) => {
     const next = store.updateSettings(patch);
     if ('launchAtLogin' in patch) applyLoginItem();
+    if ('maxRecordingSec' in patch) applyRecorderLimits();
+    if (patch.shortcuts) hotkeys.reload();
+    sendToStatus('vf:settings', {
+      sounds: !!next.sounds,
+      microphoneId: next.microphoneId || 'default',
+    });
     return next;
   });
   ipcMain.handle('vf:test-key', (_e, key) => testKey((key || '').trim() || getApiKey()));
   ipcMain.handle('vf:set-dictionary', (_e, list) => { store.setDictionary(list); });
   ipcMain.handle('vf:set-replacements', (_e, list) => { store.setReplacements(list); });
 
+  // External links (e.g. Google AI Studio) open in the real browser
+  ipcMain.handle('vf:open-external', (_e, url) => {
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
+  });
+
   // History
   ipcMain.handle('vf:delete-history', (_e, id) => store.deleteHistory(id));
   ipcMain.handle('vf:clear-history', () => store.clearHistory());
-  ipcMain.handle('vf:paste-entry', (_e, text) =>
-    pasteText({ text, restore: store.settings.restoreClipboard, method: store.settings.pasteMethod })
-  );
-
-  // Open settings / history from renderer
-  ipcMain.on('vf:open-settings', createSettingsWindow);
-  ipcMain.on('vf:open-history', createHistoryWindow);
+  ipcMain.handle('vf:paste-entry', (_e, text) => pasteInto(text));
 }

@@ -7,6 +7,10 @@ contextBridge.exposeInMainWorld('vf', {
   sendDone: () => ipcRenderer.send('rec:done'),
   sendError: (msg) => ipcRenderer.send('rec:error', msg),
 
+  // Settings (sounds, microphone)
+  getSettings: () => ipcRenderer.invoke('vf:get-settings'),
+  onSettings: (cb) => ipcRenderer.on('vf:settings', (_e, d) => cb(d)),
+
   // Status: main → renderer
   onStatus: (cb) => ipcRenderer.on('vf:status', (_e, d) => cb(d)),
 

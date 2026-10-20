@@ -8,17 +8,25 @@
  *   4. Streaming (SSE) so the pill shows words as they arrive.
  *   5. Hard timeout + real error messages — never hangs on "Processing".
  *
- * Response shape:  { raw: string, cleaned: string, language: string }
+ * Response shape:  { raw: string, cleaned: string, language: string, truncated: boolean }
  */
 
 const https = require('https');
+const { SseParser } = require('./sse');
 
 const HOST = 'generativelanguage.googleapis.com';
-const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
-const TIMEOUT_MS = 15000;
+const DEFAULT_MODEL = 'gemini-3.5-flash';
+// Tried in order when the preferred model fails (timeout / 5xx / 429).
+// The "-lite" tier is noticeably faster but is often at capacity and can
+// hang without ever answering — the chain guarantees a result.
+const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'];
+const TIMEOUT_MS = 15000;        // per request
+const TOTAL_BUDGET_MS = 28000;  // for the whole model chain
+const MAX_OUTPUT_TOKENS = 4096;
 
 // Models Google has retired for new keys → map to a working one.
-const RETIRED = /^gemini-(1\.|2\.0|2\.5|flash-latest|pro-latest)/;
+const RETIRED = /^gemini-(1\.[0-9]|2\.0|pro-vision)/;
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 
 function resolveModel(model) {
   if (!model || RETIRED.test(model)) return DEFAULT_MODEL;
@@ -28,22 +36,23 @@ function resolveModel(model) {
 /**
  * @param {object} opts  see main.js for fields
  * @param {Function} [opts.onPartial]  called with partial cleaned text while streaming
+ * @param {AbortSignal} [opts.signal]  aborts the request (e.g. user pressed Cancel)
  */
 async function transcribe(opts) {
   const {
     wav, apiKey, model,
     style = 'polished', appName = '', textBefore = '', textAfter = '',
     dictionary = [], replacements = [], language = 'auto',
-    userName = '', prevCleaned = '', onPartial,
+    userName = '', prevCleaned = '', onPartial, signal,
   } = opts;
 
-  if (!apiKey) throw new Error('Missing GEMINI_API_KEY in .env');
+  if (!apiKey) throw new Error('Missing Gemini API key — add it in Settings');
   if (!wav || wav.length < 1000) throw new Error('No audio captured — check microphone');
 
   const useModel = resolveModel(model);
   const t0 = Date.now();
 
-  const body = JSON.stringify({
+  const buildBody = () => JSON.stringify({
     systemInstruction: { parts: [{ text: buildSystemPrompt({
       style, appName, dictionary, replacements,
       language, userName, textBefore, textAfter, prevCleaned,
@@ -57,19 +66,48 @@ async function transcribe(opts) {
     }],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 1024,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
       thinkingConfig: { thinkingLevel: 'minimal' },
     },
   });
 
-  const path = `/v1beta/models/${useModel}:streamGenerateContent?alt=sse`;
-  const text = await postStreaming(path, body, apiKey, onPartial, t0);
-  const cleaned = text.trim();
+  // Try the preferred model first, then walk down the fallback chain.
+  const chain = [useModel, ...FALLBACK_MODELS.filter((m) => m !== useModel)];
+  let result = null;
+  let lastErr = null;
 
+  for (let i = 0; i < chain.length; i++) {
+    const candidate = chain[i];
+    const remaining = TOTAL_BUDGET_MS - (Date.now() - t0);
+    if (i > 0 && remaining < 4000) break;      // no time left for another try
+    const timeout = Math.max(4000, Math.min(TIMEOUT_MS, remaining));
+
+    try {
+      const body = buildBody();
+      const path = `/v1beta/models/${candidate}:streamGenerateContent?alt=sse`;
+      result = await postStreaming(path, body, apiKey, onPartial, t0, signal, timeout);
+      if (candidate !== useModel) {
+        console.warn(`[gemini] ${useModel} failed (${lastErr?.message}) — ${candidate} answered instead`);
+      }
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (err?.message === 'Cancelled') throw err;
+      if (!isRetryable(err)) throw err;        // 400 / 401 / 403 → fail fast
+      console.warn(`[gemini] ${candidate}: ${err.message}`);
+    }
+  }
+
+  if (!result) throw lastErr || new Error('Gemini request failed');
+
+  const cleaned = result.text.trim();
   console.log(`[gemini] ${useModel} | audio ${(wav.length / 1024).toFixed(0)} KB | total ${Date.now() - t0} ms`);
 
   if (!cleaned) throw new Error('No speech detected');
-  return { raw: cleaned, cleaned, language };
+  if (result.truncated) {
+    console.warn('[gemini] response hit the token limit — transcript may be cut off');
+  }
+  return { raw: cleaned, cleaned, language, truncated: !!result.truncated };
 }
 
 function buildSystemPrompt({ style, appName, dictionary, replacements,
@@ -97,10 +135,16 @@ function buildSystemPrompt({ style, appName, dictionary, replacements,
 }
 
 /** SSE streaming POST with hard timeout and readable errors. */
-function postStreaming(path, body, apiKey, onPartial, t0) {
+function postStreaming(path, body, apiKey, onPartial, t0, signal, timeoutMs = TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     let settled = false;
-    const done = (fn, v) => { if (!settled) { settled = true; clearTimeout(timer); fn(v); } };
+    const done = (fn, v) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      fn(v);
+    };
 
     const req = https.request({
       host: HOST, path, method: 'POST',
@@ -112,29 +156,32 @@ function postStreaming(path, body, apiKey, onPartial, t0) {
     }, (res) => {
       let raw = '';        // full response body (for error messages)
       let text = '';       // assembled transcript
-      let buffer = '';
+      let truncated = false;
       let firstToken = true;
+      const parser = new SseParser();
 
       res.on('data', (chunk) => {
         const s = chunk.toString();
-        raw += s;
-        if (res.statusCode !== 200) return;
+        if (res.statusCode !== 200) { raw += s; return; }
 
-        buffer += s;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const evt = JSON.parse(line.slice(6));
-            const parts = evt.candidates?.[0]?.content?.parts ?? [];
-            for (const p of parts) if (p.text && !p.thought) text += p.text;
-            if (firstToken && text) {
-              firstToken = false;
-              console.log(`[gemini] first token after ${Date.now() - t0} ms`);
-            }
-            if (onPartial && text) onPartial(text);
-          } catch { /* partial line */ }
+        for (const payload of parser.push(s)) {
+          let evt;
+          try { evt = JSON.parse(payload); } catch { continue; }
+
+          if (evt.promptFeedback?.blockReason) {
+            return done(reject, new Error(`Blocked by Gemini: ${evt.promptFeedback.blockReason}`));
+          }
+          const cand = evt.candidates?.[0];
+          if (cand?.finishReason === 'MAX_TOKENS') truncated = true;
+
+          const parts = cand?.content?.parts ?? [];
+          for (const p of parts) if (p.text && !p.thought) text += p.text;
+
+          if (firstToken && text) {
+            firstToken = false;
+            console.log(`[gemini] first token after ${Date.now() - t0} ms`);
+          }
+          if (onPartial && text) onPartial(text);
         }
       });
 
@@ -142,22 +189,55 @@ function postStreaming(path, body, apiKey, onPartial, t0) {
         if (res.statusCode !== 200) {
           let msg = raw.slice(0, 200);
           try { msg = JSON.parse(raw).error?.message || msg; } catch {}
-          return done(reject, new Error(`Gemini ${res.statusCode}: ${msg}`));
+          const err = new Error(`Gemini ${res.statusCode}: ${msg}`);
+          err.status = res.statusCode;
+          return done(reject, err);
         }
-        done(resolve, text);
+        // A final partial line may still be buffered.
+        for (const payload of parser.flush()) {
+          try {
+            const evt = JSON.parse(payload);
+            const parts = evt.candidates?.[0]?.content?.parts ?? [];
+            for (const p of parts) if (p.text && !p.thought) text += p.text;
+          } catch { /* ignore trailing garbage */ }
+        }
+        done(resolve, { text, truncated });
       });
       res.on('error', (e) => done(reject, e));
     });
 
     const timer = setTimeout(() => {
       req.destroy();
-      done(reject, new Error(`Gemini timed out after ${TIMEOUT_MS / 1000}s — check internet`));
-    }, TIMEOUT_MS);
+      done(reject, new Error(`Gemini timed out after ${Math.round(timeoutMs / 1000)}s — check internet`));
+    }, timeoutMs);
 
-    req.on('error', (e) => done(reject, new Error(`Network error: ${e.message}`)));
+    function onAbort() {
+      req.destroy();
+      done(reject, new Error('Cancelled'));
+    }
+    if (signal) {
+      if (signal.aborted) { onAbort(); return; }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    req.on('error', (e) => {
+      if (settled) return;
+      const err = new Error(`Network error: ${e.message}`);
+      err.code = e.code;
+      done(reject, err);
+    });
     req.write(body);
     req.end();
   });
+}
+
+/**
+ * Retryable = the request may succeed with another model or a moment later.
+ * 400 / 401 / 403 are permanent failures and are reported immediately.
+ */
+function isRetryable(err) {
+  if (err?.status) return RETRYABLE_STATUS.has(err.status);
+  return /network error|timed out|socket hang up/i.test(err?.message || '');
 }
 
 /** Quick key check for the Settings "Test" button. */
@@ -167,10 +247,23 @@ function testKey(apiKey) {
     contents: [{ parts: [{ text: 'Reply with OK' }] }],
     generationConfig: { maxOutputTokens: 5, thinkingConfig: { thinkingLevel: 'minimal' } },
   });
-  return postStreaming(`/v1beta/models/${DEFAULT_MODEL}:streamGenerateContent?alt=sse`,
-    body, apiKey, null, Date.now())
-    .then(() => ({ ok: true, message: 'Key works ✓' }))
-    .catch((e) => ({ ok: false, message: e.message }));
+  // The same model chain as a real dictation — a busy model must not make
+  // a perfectly valid key look broken.
+  const chain = [DEFAULT_MODEL, ...FALLBACK_MODELS.filter((m) => m !== DEFAULT_MODEL)];
+  return (async () => {
+    let lastErr = null;
+    for (const model of chain) {
+      try {
+        await postStreaming(`/v1beta/models/${model}:streamGenerateContent?alt=sse`,
+          body, apiKey, null, Date.now(), null, 10000);
+        return { ok: true, message: 'Key works ✓' };
+      } catch (err) {
+        lastErr = err;
+        if (!isRetryable(err)) break;
+      }
+    }
+    return { ok: false, message: lastErr?.message || 'Request failed' };
+  })();
 }
 
-module.exports = { transcribe, testKey, resolveModel, DEFAULT_MODEL };
+module.exports = { transcribe, testKey, resolveModel, buildSystemPrompt, DEFAULT_MODEL, FALLBACK_MODELS };
