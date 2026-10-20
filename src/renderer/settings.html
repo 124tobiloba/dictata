@@ -333,16 +333,17 @@
     <div class="panel" id="panel-shortcuts">
       <h2>Shortcuts</h2>
       <div class="section">
-        <div class="section-title">Current bindings (read from settings.json)</div>
+        <div class="section-title">Current bindings</div>
         <div class="row"><label>Push-to-talk</label><span id="sc-ptt"></span></div>
         <div class="row"><label>Hands-free lock</label><span id="sc-hf"></span></div>
         <div class="row"><label>Cancel</label><span id="sc-cancel"></span></div>
         <div class="row"><label>Paste last text</label><span id="sc-paste"></span></div>
       </div>
       <div class="section" style="color:var(--muted);font-size:13px;line-height:1.7">
-        To change shortcuts, edit <kbd>shortcuts</kbd> in your settings file.<br/>
+        To change shortcuts, edit <kbd>shortcuts</kbd> in
+        <kbd>voice-flow.json</kbd> (in <kbd>%APPDATA%\voice-flow</kbd>) and restart the app.<br/>
         Modifier names: <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Alt</kbd> <kbd>Meta</kbd> (Win key)<br/>
-        Key names: any UiohookKey name, e.g. <kbd>Space</kbd>, <kbd>F1</kbd>, <kbd>Backquote</kbd>
+        Key names: any Electron accelerator key, e.g. <kbd>Space</kbd>, <kbd>F1</kbd>, <kbd>Backquote</kbd>
       </div>
     </div>
 
