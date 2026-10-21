@@ -44,7 +44,14 @@ const store = new Store();
 const recorder = new Recorder();
 const hotkeys = new HotkeyService(store);
 const bus = new EventBus({ limit: 500 });
-const dashboard = new DashboardServer({ store, bus, port: store.settings.dashboardPort });
+bus.lastAction = null;
+const dashboard = new DashboardServer({
+  store,
+  bus,
+  port: store.settings.dashboardPort,
+  // Stable across restarts, so a bookmarked dashboard URL keeps working.
+  token: store.getOrCreateToken(),
+});
 
 // The bus carries a little app state so the dashboard can render it.
 bus.appState = 'idle';
@@ -156,6 +163,7 @@ function createStatusWindow() {
   recorder.attach(statusWindow);
 
   recorder.on('done', onRecordingDone);
+  recorder.on('level', (level) => publishLevel(level));
   recorder.on('error', (err) => {
     console.error('[recorder]', err.message);
     state = STATE.IDLE;
@@ -259,6 +267,7 @@ function notifyError(message) {
 
 // ── Hotkey actions → state machine ───────────────────────────────────────────
 hotkeys.on('action', ({ action }) => {
+  bus.lastAction = action;
   switch (action) {
     case 'start':
     case 'start-lock':
@@ -326,6 +335,16 @@ function publishPartial(text) {
   lastPartialText = text;
   lastPartialAt = now;
   bus.publish('partial', { text });
+}
+
+// The microphone level drives the dashboard's orb — ~12 updates a second is
+// plenty, and it keeps the event stream small.
+let lastLevelAt = 0;
+function publishLevel(level) {
+  const now = Date.now();
+  if (now - lastLevelAt < 80) return;
+  lastLevelAt = now;
+  bus.publish('level', { level: Number(level) || 0 });
 }
 
 // ── Recording done → Gemini → paste ──────────────────────────────────────────
@@ -489,7 +508,7 @@ function setState(s) {
   }
   bus.appState = s;
   bus.handsFree = handsFreeOn;
-  bus.publish('state', { state: s, handsFree: handsFreeOn });
+  bus.publish('state', { state: s, handsFree: handsFreeOn, action: bus.lastAction });
   sendToStatus('vf:status', { state: s, handsFree: handsFreeOn });
 }
 

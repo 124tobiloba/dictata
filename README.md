@@ -132,9 +132,12 @@ The page shows, live:
   you tend to dictate
 - counters: words today, sessions, speaking time, words per minute, average
   latency, error rate
+- **your keyboard shortcuts**, read from the app's own settings — the page
+  can never disagree with the app. The keycaps flash when a shortcut fires.
+- the orb in the hero reacts to your **real microphone level**
 
-There is a **Demo** button that replays a scripted session, so the page looks
-alive even when the app is idle.
+If the app restarts, the page says so in a banner and reconnects by itself —
+your data stays on screen the whole time.
 
 ### Privacy
 
@@ -143,6 +146,9 @@ Every API call needs the token from the URL, and requests with a foreign
 `Host` header are rejected, so a random web page in your browser cannot read
 your transcripts. Nothing is sent anywhere: the dashboard reads the same
 local store the app writes to.
+
+The token is **stable across restarts** (it is stored in the app's data
+folder), so a bookmarked dashboard URL keeps working.
 
 | Route | Purpose |
 |---|---|
@@ -163,6 +169,7 @@ Three levels, cheapest first:
 | `npm run test:api` | The live Gemini request: audio encoding, request body, model selection, fallback chain, response parsing | network + API key |
 | `npm run test:paste` | The paste pipeline end-to-end: window targeting, `SetForegroundWindow`, `SendKeys`, clipboard snapshot and restore | Windows desktop (it opens Notepad) |
 | `npm run test:dashboard` | The dashboard server: page, auth, state endpoint, live SSE delivery, port fallback | nothing |
+| `npm run test:mic` | Measures the real microphone level — tells a silent input device apart from a broken level calculation | a microphone |
 
 `npm run test:paste` opens Notepad, dictates "into" it, then reads Notepad's
 content back to prove the text arrived, and checks that the clipboard was

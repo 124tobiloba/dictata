@@ -45,6 +45,11 @@ class Recorder extends EventEmitter {
 
     ipcMain.on('rec:done', () => this._finish('renderer'));
 
+    ipcMain.on('rec:level', (_e, level) => {
+      if (!this._recording) return;
+      this.emit('level', level);
+    });
+
     ipcMain.on('rec:error', (_e, msg) => {
       this._recording = false;
       this._chunks = [];

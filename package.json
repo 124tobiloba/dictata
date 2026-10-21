@@ -10,7 +10,8 @@
     "test": "node --test \"test/**/*.test.js\"",
     "test:paste": "electron scripts/test-paste.js",
     "test:api": "node scripts/test-api.js",
-    "test:dashboard": "node --test test/dashboard.test.js"
+    "test:dashboard": "node --test test/dashboard.test.js",
+    "test:mic": "electron scripts/mic-probe.js"
   },
   "author": "Vilian",
   "license": "MIT",

@@ -44,3 +44,11 @@ test('collections and stats are restored', () => {
   assert.equal(s.stats.words, 42);
   assert.equal(s.stats.sessions, 3);
 });
+
+test('the dashboard token survives a restart', () => {
+  // A rotating token silently breaks every open browser tab, so it has to
+  // be stored.
+  const stored = mergeDefaults({ dashboardToken: 'abc123' });
+  assert.equal(stored.dashboardToken, 'abc123');
+  assert.equal(mergeDefaults({}).dashboardToken, '');
+});

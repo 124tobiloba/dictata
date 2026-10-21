@@ -6,6 +6,7 @@
 const { app, safeStorage } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const DEFAULTS = {
   settings: {
@@ -36,6 +37,9 @@ const DEFAULTS = {
   replacements: [],             // [{ from, to }]
   history: [],                  // newest first
   events: [],                   // persisted activity log (newest first)
+  // Access token for the local dashboard. It is stable across restarts so
+  // that a bookmarked dashboard URL keeps working.
+  dashboardToken: '',
   stats: { words: 0, sessions: 0, msSpoken: 0 },
 };
 
@@ -83,6 +87,7 @@ function mergeDefaults(raw) {
     replacements: src.replacements || [],
     history: src.history || [],
     events: src.events || [],
+    dashboardToken: src.dashboardToken || '',
     stats: { ...DEFAULTS.stats, ...(src.stats || {}) },
   };
 }
@@ -148,6 +153,18 @@ class Store {
 
   setDictionary(list) { this.data.dictionary = list; this._save(); }
   setReplacements(list) { this.data.replacements = list; this._save(); }
+
+  /**
+   * The dashboard access token. It is created once and then kept, so the
+   * dashboard URL survives an app restart — a rotating token silently
+   * breaks every open browser tab.
+   */
+  getOrCreateToken() {
+    if (this.data.dashboardToken) return this.data.dashboardToken;
+    this.data.dashboardToken = crypto.randomBytes(16).toString('hex');
+    this._save();
+    return this.data.dashboardToken;
+  }
 
   /** Persist an activity event (dictations, errors, info). */
   addEvent(entry) {

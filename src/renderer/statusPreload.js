@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('vf', {
   // Recorder: renderer → main
   sendChunk: (ab) => ipcRenderer.send('rec:chunk', ab),
+  sendLevel: (level) => ipcRenderer.send('rec:level', level),
   sendDone: () => ipcRenderer.send('rec:done'),
   sendError: (msg) => ipcRenderer.send('rec:error', msg),
 

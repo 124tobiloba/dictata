@@ -27,6 +27,8 @@ const MAX_OUTPUT_TOKENS = 4096;
 // Models Google has retired for new keys → map to a working one.
 const RETIRED = /^gemini-(1\.[0-9]|2\.0|pro-vision)/;
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+// The model echoing our instruction back means it heard no speech.
+const ECHO = /^transcribe this recording now\.?$/i;
 
 function resolveModel(model) {
   if (!model || RETIRED.test(model)) return DEFAULT_MODEL;
@@ -135,6 +137,9 @@ async function transcribe(opts) {
   console.log(`[gemini] ${useModel} | audio ${(wav.length / 1024).toFixed(0)} KB | total ${Date.now() - t0} ms`);
 
   if (!cleaned) throw new Error('No speech detected');
+  // With silence the model sometimes echoes the instruction instead of
+  // saying that there was no speech.
+  if (ECHO.test(cleaned)) throw new Error('No speech detected');
   if (result.truncated) {
     console.warn('[gemini] response hit the token limit — transcript may be cut off');
   }

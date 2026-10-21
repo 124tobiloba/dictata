@@ -80,7 +80,9 @@ class DashboardServer {
     this.store = opts.store;
     this.bus = opts.bus;
     this.port = opts.port ?? DEFAULT_PORT;
-    this.token = crypto.randomBytes(16).toString('hex');
+    // A stable token keeps bookmarked dashboard links working across
+    // restarts. Fall back to a random one if none was given.
+    this.token = opts.token || crypto.randomBytes(16).toString('hex');
     this.server = null;
     this.clients = new Set();
     this._onEvent = (event) => this._broadcast(event);
@@ -213,11 +215,13 @@ class DashboardServer {
     const snapshot = this.store.snapshot();
     const live = this.bus.recent(200);
     const events = collectEvents(snapshot.history, snapshot.events || [], live);
+    const settings = snapshot.settings || {};
     return {
       app: {
         state: this.bus.appState || 'idle',
         handsFree: !!this.bus.handsFree,
-        model: snapshot.settings?.model || null,
+        model: settings.model || null,
+        shortcuts: settings.shortcuts || null,
         startedAt: this.bus.startedAt || null,
         version: this.bus.version || null,
       },
@@ -225,7 +229,7 @@ class DashboardServer {
         history: snapshot.history,
         events,
         stats: snapshot.stats,
-        fallbackModel: snapshot.settings?.model || null,
+        fallbackModel: settings.model || null,
       }),
       history: snapshot.history,
       events,

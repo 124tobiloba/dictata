@@ -128,3 +128,39 @@ test('binds to localhost only', async () => {
     assert.match(server.url, /^http:\/\/127\.0\.0\.1:\d+\//);
   });
 });
+
+test('uses a token that was handed in, so links survive a restart', async () => {
+  const bus = new EventBus();
+  const server = new DashboardServer({ store: fakeStore(), bus, port: 0, token: 'a-stable-token' });
+  await server.start();
+  try {
+    assert.equal(server.token, 'a-stable-token');
+    assert.match(server.url, /token=a-stable-token$/);
+
+    const res = await fetch(`${server.baseUrl}/api/state?token=a-stable-token`);
+    assert.equal(res.status, 200);
+  } finally {
+    server.stop();
+  }
+});
+
+test('the state payload carries the real keyboard shortcuts', async () => {
+  const bus = new EventBus();
+  const store = fakeStore();
+  store.snapshot = () => ({
+    settings: {
+      model: 'gemini-2.5-flash',
+      shortcuts: { pushToTalk: ['Alt', 'Shift', 'D'], handsFree: ['Alt', 'Shift', 'F'] },
+    },
+    history: [], events: [], stats: {}, dictionary: [], replacements: [],
+  });
+  const server = new DashboardServer({ store, bus, port: 0 });
+  await server.start();
+  try {
+    const res = await fetch(`${server.baseUrl}/api/state?token=${server.token}`);
+    const data = await res.json();
+    assert.deepEqual(data.app.shortcuts.pushToTalk, ['Alt', 'Shift', 'D']);
+  } finally {
+    server.stop();
+  }
+});

@@ -179,6 +179,7 @@ async function ensureContext() {
       if (!wasCancelled) window.vf.sendDone();
     } else if (e.data?.pcm && recording && !cancelled) {
       window.vf.sendChunk(e.data.pcm);
+      if (typeof e.data.level === 'number') window.vf.sendLevel(e.data.level);
     }
   };
   console.log('[rec] mic ready, ctx', audioCtx.state, audioCtx.sampleRate);
