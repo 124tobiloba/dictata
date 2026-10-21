@@ -119,25 +119,44 @@ Voice Flow serves a live activity dashboard on your own machine:
 http://127.0.0.1:7788/?token=…
 ```
 
-Open it from the tray menu (**Open Dashboard**) — the link contains a
-per-session token. You can also find the URL in **Settings → Web dashboard**.
+Open it from the tray menu (**Open Dashboard**) — the link carries the access
+token. You can also find the URL in **Settings → Web dashboard**.
 
-The page shows, live:
+The page has three views:
 
+**Dictation** — the live window into the pipeline.
+
+- the words streaming in while the transcription is still running
+- the orb reacts to your **real microphone level** (measured in the recorder
+  worklet, not a canned animation)
 - every dictation as it lands, with its timing (`rec` / `transcribe` / `paste`)
   and the model that answered
-- the words streaming in while the transcription is still running
-- every error, grouped by cause
-- charts: words per day, transcription latency, model usage, and the hours
-  you tend to dictate
-- counters: words today, sessions, speaking time, words per minute, average
-  latency, error rate
-- **your keyboard shortcuts**, read from the app's own settings — the page
-  can never disagree with the app. The keycaps flash when a shortcut fires.
-- the orb in the hero reacts to your **real microphone level**
+- **your keyboard shortcuts**, read from the app's own settings — the page can
+  never disagree with the app, and the keycaps flash when a shortcut fires
 
-If the app restarts, the page says so in a banner and reconnects by itself —
-your data stays on screen the whole time.
+**History** — every dictation, grouped by day like the Wispr Flow app: the
+time on the left, the transcript on the right, with word counts and timings.
+Failed attempts keep their place in the timeline as their own rows
+(*Audio is silent*, *No speech detected*), so a gap in the day always has an
+explanation. Nothing older is hidden behind a live-feed row limit.
+
+**Insights** — words per day, transcription latency, model usage, the hours you
+tend to dictate, and every error grouped by cause.
+
+Beside them the rail carries the headline numbers (total words, words per
+minute, day streak), your shortcuts, and a voice-profile card showing how
+reliably your speech reaches the cursor.
+
+The design takes Wispr Flow's language: warm paper background, ink serif
+display type, orange keycaps, lavender buttons. It is light by default (dark
+is one click away), uses the system font stack with no webfonts, and reflows
+down to phone width.
+
+**If the app restarts**, the page keeps its data on screen, says so in a
+banner, and reconnects by itself. **If the link is stale** (a tab from an older
+version, whose token no longer matches), the page says exactly that and tells
+you to open a fresh link from the tray — it never shows an empty dashboard
+that looks like "your history is gone".
 
 ### Privacy
 
@@ -148,7 +167,9 @@ your transcripts. Nothing is sent anywhere: the dashboard reads the same
 local store the app writes to.
 
 The token is **stable across restarts** (it is stored in the app's data
-folder), so a bookmarked dashboard URL keeps working.
+folder), so a bookmarked dashboard URL keeps working. If port 7788 is already
+taken when the app starts, the dashboard moves to the next free port — the
+tray's **Open Dashboard** always opens the right one.
 
 | Route | Purpose |
 |---|---|
@@ -165,10 +186,10 @@ Three levels, cheapest first:
 
 | Command | What it covers | Needs |
 |---|---|---|
-| `npm test` | The pure logic: push-to-talk rules, WAV encoding, SSE parsing, prompt building, model resolution, settings merge, analytics | nothing |
+| `npm test` | The pure logic: push-to-talk rules, WAV encoding, SSE parsing, prompt building, model resolution, settings merge, analytics — plus static checks on the dashboard page (every id the client looks up exists, no demo mode, no webfont, breakpoints present) | nothing |
 | `npm run test:api` | The live Gemini request: audio encoding, request body, model selection, fallback chain, response parsing | network + API key |
 | `npm run test:paste` | The paste pipeline end-to-end: window targeting, `SetForegroundWindow`, `SendKeys`, clipboard snapshot and restore | Windows desktop (it opens Notepad) |
-| `npm run test:dashboard` | The dashboard server: page, auth, state endpoint, live SSE delivery, port fallback | nothing |
+| `npm run test:dashboard` | The dashboard server: page, auth, state endpoint, the full history payload, live SSE delivery, port fallback | nothing |
 | `npm run test:mic` | Measures the real microphone level — tells a silent input device apart from a broken level calculation | a microphone |
 
 `npm run test:paste` opens Notepad, dictates "into" it, then reads Notepad's
@@ -192,6 +213,13 @@ restored afterwards. It closes Notepad when it is done.
 8. Say a word from your **dictionary** and check that it is spelled correctly.
 9. Dictate into an app that runs as administrator — pasting there is not
    possible with `SendKeys`; the text stays on the clipboard instead.
+10. Open the dashboard (**tray → Open Dashboard**) while the app is running:
+   **History** lists your dictations grouped by day, and dictating again makes
+   a new row appear without reloading the page.
+11. Quit Voice Flow with the dashboard open — the page keeps its data and shows
+   "Lost the connection". Start it again — the banner clears on its own.
+12. Append `?token=wrong` to the dashboard URL — you get the full-page *fresh
+   link* card, not an empty dashboard.
 
 ## Known limitations
 

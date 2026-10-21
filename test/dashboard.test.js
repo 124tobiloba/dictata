@@ -38,7 +38,10 @@ test('serves the dashboard page', async () => {
     assert.match(res.headers.get('content-type'), /text\/html/);
     const html = await res.text();
     assert.match(html, /Voice Flow/);
-    assert.match(html, /Live activity/);
+    // The three views the page offers.
+    assert.match(html, /data-tab="live"/);
+    assert.match(html, /data-tab="history"/);
+    assert.match(html, /data-tab="insights"/);
   });
 });
 
@@ -78,6 +81,44 @@ test('returns the state snapshot with a valid token', async () => {
     assert.equal(data.app.model, 'gemini-2.5-flash');
     assert.ok(Array.isArray(data.history));
   });
+});
+
+test('the history view gets every stored dictation, with its text', async () => {
+  const bus = new EventBus();
+  const history = Array.from({ length: 25 }, (_, i) => ({
+    id: `h-${i}`,
+    raw: `raw ${i}`,
+    cleaned: `dictation number ${i}`,
+    at: 1_700_000_000_000 + i * 1000,
+    durationMs: 2000 + i,
+    transcribeMs: 900 + i,
+    pasteMs: 120,
+    pasted: i % 5 !== 0,
+    model: 'gemini-2.5-flash',
+    words: 3,
+  }));
+  const server = new DashboardServer({ store: fakeStore([...history].reverse()), bus, port: 0 });
+  await server.start();
+  try {
+    const res = await fetch(`${server.baseUrl}/api/state?token=${server.token}`);
+    const data = await res.json();
+
+    // Older dictations must survive — a 40-row live feed would hide them.
+    assert.equal(data.history.length, 25);
+    assert.equal(data.events.filter((e) => e.type === 'dictation').length, 25);
+
+    const newest = data.history[0];
+    assert.equal(newest.id, 'h-24');
+    assert.equal(newest.cleaned, 'dictation number 24');
+    assert.equal(newest.pasted, true);
+    assert.equal(newest.pasteMs, 120);
+
+    // Newest first, so the history reads like a timeline.
+    const times = data.history.map((h) => h.at);
+    assert.deepEqual(times, [...times].sort((a, b) => b - a));
+  } finally {
+    server.stop();
+  }
 });
 
 test('streams live events over SSE', async () => {

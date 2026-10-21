@@ -24,6 +24,7 @@ const { pasteText } = require('./paste');
 const { winHelper } = require('./winhelper');
 const { EventBus } = require('./events');
 const { DashboardServer } = require('./dashboard');
+const { wordCount } = require('./analytics');
 
 const IS_DEV = process.argv.includes('--dev');
 const getApiKey = () => (store.settings.apiKey || '').trim() || process.env.GEMINI_API_KEY || '';
@@ -421,12 +422,18 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
       model: result.model,
       at: Date.now(),
     };
-    store.addHistory(entry);
     updateTrayMenu();
 
     const pasteStart = Date.now();
     const { pasted } = await pasteInto(result.cleaned);
     const pasteMs = Date.now() - pasteStart;
+
+    // Stored after pasting so the history keeps the complete picture (the
+    // dashboard's history view reads these entries).
+    entry.pasteMs = pasteMs;
+    entry.pasted = pasted;
+    entry.words = wordCount(entry.cleaned);
+    store.addHistory(entry);
 
     console.log(`[pipeline] stop → pasted in ${Date.now() - tStart} ms`);
     bus.publish('dictation', {
@@ -434,7 +441,7 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
       pasteMs,
       pasted,
       truncated: !!result.truncated,
-      words: entry.cleaned.trim().split(/\s+/).filter(Boolean).length,
+      words: entry.words,
     });
     if (result.model && result.model !== s.model) {
       bus.publish('info', {

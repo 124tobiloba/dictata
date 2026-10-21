@@ -4,140 +4,184 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light dark" />
-  <title>Voice Flow — Live Activity</title>
+  <title>Voice Flow — Dictation</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2.5a2.75 2.75 0 0 0-2.75 2.75v6.5a2.75 2.75 0 0 0 5.5 0v-6.5A2.75 2.75 0 0 0 12 2.5Z" />
-          <path d="M18.5 10.5v1.25a6.5 6.5 0 0 1-13 0V10.5" />
-          <path d="M12 18.25V21" /><path d="M8.75 21h6.5" />
-        </svg>
-      </span>
-      <span class="brand-text">
-        <span class="brand-name">Voice Flow</span>
-        <span class="brand-sub">Live activity</span>
-      </span>
-    </div>
+  <header class="nav">
+    <div class="nav-inner">
+      <div class="wordmark">
+        <span class="wordmark-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M5 5v14" /><path d="M10 8v8" /><path d="M15 4v16" /><path d="M20 9v6" />
+          </svg>
+        </span>
+        <span class="wordmark-text">Voice Flow</span>
+      </div>
 
-    <div class="topbar-actions">
-      <span class="pill" id="statusPill">
-        <span class="status-dot" id="statusDot"></span>
-        <span id="statusText">Connecting</span>
-      </span>
-      <span class="pill pill-quiet" id="modelPill">—</span>
-      <button class="icon-btn" id="themeToggle" type="button" aria-label="Switch between light and dark">
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="4.2" />
-          <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4" />
-        </svg>
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M20 14.5A8.2 8.2 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
-        </svg>
-      </button>
+      <nav class="tabs" id="tabs" role="tablist" aria-label="Views">
+        <button class="tab is-active" type="button" role="tab" aria-selected="true" data-tab="live">Dictation</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="history">History</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="insights">Insights</button>
+      </nav>
+
+      <div class="nav-right">
+        <span class="pill" id="statusPill">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Connecting</span>
+        </span>
+        <span class="pill pill-model" id="modelPill">—</span>
+        <button class="icon-btn" id="themeToggle" type="button" aria-label="Switch between light and dark">
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2" />
+            <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4" />
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 14.5A8.2 8.2 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+          </svg>
+        </button>
+      </div>
     </div>
   </header>
 
-  <div class="banner" id="banner" role="status" hidden>
-    <svg class="banner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
-         stroke-linecap="round" aria-hidden="true">
-      <path d="M12 8.5v4.2" /><path d="M12 16.3h.01" />
-      <circle cx="12" cy="12" r="9" />
-    </svg>
-    <div class="banner-text">
-      <strong id="bannerTitle">Connection lost</strong>
-      <span id="bannerBody">Reconnecting to Voice Flow…</span>
+  <div class="shell">
+    <!-- A dead link (stale token after a restart) gets the whole screen, so
+         the page is never a half-empty dashboard with no explanation. -->
+    <section class="takeover" id="takeover" hidden>
+      <div class="takeover-card">
+        <span class="takeover-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+               stroke-linejoin="round">
+            <path d="M12 2.5a2.75 2.75 0 0 0-2.75 2.75v6.5a2.75 2.75 0 0 0 5.5 0v-6.5A2.75 2.75 0 0 0 12 2.5Z" />
+            <path d="M18.5 10.5v1.25a6.5 6.5 0 0 1-13 0V10.5" />
+            <path d="M12 18.25V21" /><path d="M8.75 21h6.5" />
+          </svg>
+        </span>
+        <h2>This page needs a fresh link</h2>
+        <p id="takeoverBody">
+          Voice Flow restarted and this browser tab is still using the old access token, so
+          the app refuses its requests. Your dictations are not lost — they are safely stored
+          on this machine.
+        </p>
+        <p class="takeover-steps">
+          Right-click the Voice Flow icon in the system tray and choose
+          <strong>Open Dashboard</strong>. It opens a tab that is already authorised.
+        </p>
+        <button class="btn btn-primary" id="takeoverRetry" type="button">Reconnect this tab</button>
+      </div>
+    </section>
+
+    <div class="banner" id="banner" role="status" hidden>
+      <svg class="banner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+           stroke-linecap="round" aria-hidden="true">
+        <path d="M12 8.5v4.2" /><path d="M12 16.3h.01" />
+        <circle cx="12" cy="12" r="9" />
+      </svg>
+      <div class="banner-text">
+        <strong id="bannerTitle">Lost the connection to Voice Flow</strong>
+        <span id="bannerBody">Retrying automatically — the page will catch up on its own.</span>
+      </div>
+      <button class="btn btn-quiet" id="bannerRetry" type="button">Reconnect now</button>
     </div>
-    <button class="btn btn-quiet" id="bannerRetry" type="button">Reconnect</button>
+
+    <main class="layout" id="layout">
+      <div class="col-main">
+        <!-- ── Dictation ─────────────────────────────────────────────── -->
+        <section class="panel" data-panel="live">
+          <div class="hero">
+            <p class="eyebrow">Voice Flow dictation</p>
+            <h1>Don&rsquo;t type,<br /><em>just speak.</em></h1>
+            <p class="lede">
+              Your voice becomes clean, written text in whatever app your cursor is in.
+              This page watches that pipeline happen — live, on this machine only.
+            </p>
+            <div class="hero-hint" id="heroHint">
+              <span class="hint-label">Press</span>
+              <span class="keys" id="heroKeys"></span>
+              <span class="hint-label">to dictate</span>
+            </div>
+            <p class="hero-note">Press it a second time to stop and paste the text.</p>
+          </div>
+
+          <section class="card live-card">
+            <div class="orb" id="orb" data-state="idle">
+              <span class="orb-ring"></span>
+              <span class="orb-ring orb-ring-2"></span>
+              <span class="orb-core" id="orbCore"></span>
+            </div>
+            <p class="orb-caption" id="liveCaption">Waiting for you</p>
+            <p class="live-text" id="liveText" hidden></p>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>Recent activity</h2>
+              <span class="card-meta" id="feedCount"></span>
+            </div>
+            <div class="feed" id="feed"></div>
+          </section>
+        </section>
+
+        <!-- ── History ───────────────────────────────────────────────── -->
+        <section class="panel" data-panel="history" hidden>
+          <div class="panel-head">
+            <h2 class="panel-title">Your dictation history</h2>
+            <p class="panel-sub" id="historySub"></p>
+          </div>
+          <div class="history" id="history"></div>
+        </section>
+
+        <!-- ── Insights ──────────────────────────────────────────────── -->
+        <section class="panel" data-panel="insights" hidden>
+          <div class="panel-head">
+            <h2 class="panel-title">Insights</h2>
+            <p class="panel-sub">How you have been using Voice Flow.</p>
+          </div>
+          <div class="insight-grid">
+            <section class="card">
+              <div class="card-head"><h3>Words per day</h3><span class="card-meta">7 days</span></div>
+              <div class="chart" id="chartDays"></div>
+            </section>
+            <section class="card">
+              <div class="card-head"><h3>Transcription latency</h3><span class="card-meta" id="latencyNote"></span></div>
+              <div class="chart" id="chartLatency"></div>
+            </section>
+            <section class="card">
+              <div class="card-head"><h3>Models</h3></div>
+              <div class="chart" id="chartModels"></div>
+            </section>
+            <section class="card">
+              <div class="card-head"><h3>When you dictate</h3><span class="card-meta">by hour</span></div>
+              <div class="chart" id="chartHours"></div>
+            </section>
+            <section class="card insight-wide">
+              <div class="card-head"><h3>Problems</h3><span class="card-meta" id="errorCount"></span></div>
+              <div class="errors" id="errors"></div>
+            </section>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── Right rail ──────────────────────────────────────────────── -->
+      <aside class="col-rail">
+        <section class="card stats-card" id="stats"></section>
+
+        <section class="card">
+          <div class="card-head"><h2>Keyboard</h2></div>
+          <ul class="shortcut-list" id="shortcutList"></ul>
+        </section>
+
+        <section class="card" id="setup"></section>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span>Voice Flow · local dashboard</span>
+      <span>Served from 127.0.0.1 — nothing leaves this machine.</span>
+    </footer>
   </div>
-
-  <main class="bento" id="bento">
-    <!-- Hero -->
-    <section class="tile tile-hero">
-      <h1>Speak.<br /><span class="grad">It types itself.</span></h1>
-      <p class="lede">
-        Every dictation, every model call, every error — streamed live from
-        your Voice Flow app, on your own machine.
-      </p>
-      <div class="hero-hint" id="heroHint">
-        <span class="hint-label">Press</span>
-        <span class="keys" id="heroKeys"></span>
-        <span class="hint-label">to dictate</span>
-      </div>
-      <p class="hero-note">Press it again to stop and paste the text where your cursor is.</p>
-    </section>
-
-    <!-- Live orb -->
-    <section class="tile tile-orb">
-      <div class="orb" id="orb" data-state="idle">
-        <span class="orb-ring"></span>
-        <span class="orb-ring orb-ring-2"></span>
-        <span class="orb-core" id="orbCore"></span>
-      </div>
-      <p class="orb-caption" id="liveCaption">Waiting for you</p>
-    </section>
-
-    <!-- Shortcuts -->
-    <section class="tile tile-shortcuts">
-      <div class="tile-head">
-        <h2>Keyboard</h2>
-      </div>
-      <ul class="shortcut-list" id="shortcutList"></ul>
-    </section>
-
-    <!-- Stats -->
-    <section class="stats" id="stats"></section>
-
-    <!-- Live activity -->
-    <section class="tile tile-activity">
-      <div class="tile-head">
-        <h2>Live activity</h2>
-        <span class="tile-meta" id="feedCount"></span>
-      </div>
-      <div class="feed" id="feed"></div>
-    </section>
-
-    <!-- Errors -->
-    <section class="tile tile-errors">
-      <div class="tile-head">
-        <h2>Errors</h2>
-        <span class="tile-meta" id="errorCount"></span>
-      </div>
-      <div class="errors" id="errors"></div>
-    </section>
-
-    <!-- Charts -->
-    <section class="tile tile-chart">
-      <div class="tile-head"><h2>Words per day</h2><span class="tile-meta">7 days</span></div>
-      <div class="chart" id="chartDays"></div>
-    </section>
-
-    <section class="tile tile-chart">
-      <div class="tile-head"><h2>Transcription latency</h2><span class="tile-meta" id="latencyNote">—</span></div>
-      <div class="chart" id="chartLatency"></div>
-    </section>
-
-    <section class="tile tile-chart">
-      <div class="tile-head"><h2>Models</h2></div>
-      <div class="chart" id="chartModels"></div>
-    </section>
-
-    <section class="tile tile-chart">
-      <div class="tile-head"><h2>When you dictate</h2><span class="tile-meta">by hour</span></div>
-      <div class="chart" id="chartHours"></div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <span>Voice Flow · local dashboard</span>
-    <span>Served from 127.0.0.1 — nothing leaves this machine.</span>
-  </footer>
 
   <script src="app.js"></script>
 </body>
