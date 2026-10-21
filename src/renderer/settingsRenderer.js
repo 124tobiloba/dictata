@@ -51,6 +51,18 @@ async function loadDashboardLink() {
     const el = document.getElementById('dashboardUrl');
     if (el) el.textContent = 'Test event sent — watch the page.';
   });
+  document.getElementById('copyDashboard')?.addEventListener('click', async () => {
+    const url = await window.vf.dashboardUrl();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      const el = document.getElementById('dashboardUrl');
+      if (el) el.textContent = 'Link copied to the clipboard.';
+    } catch {
+      const el = document.getElementById('dashboardUrl');
+      if (el) el.textContent = url;
+    }
+  });
 }
 
 /** Fill the microphone dropdown with the available inputs. */
