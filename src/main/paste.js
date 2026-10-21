@@ -18,6 +18,44 @@ const { winHelper } = require('./winhelper');
 const RESTORE_DELAY_MS = 600;  // give the target app time to paste
 
 /**
+ * Electron 44 exposes the clipboard asynchronously — readText() returns a
+ * Promise. These helpers work with both the old (sync) and the new (async)
+ * clipboard API, and never throw.
+ */
+async function readClipboardText() {
+  try {
+    const value = await Promise.resolve(clipboard.readText());
+    return typeof value === 'string' ? value : '';
+  } catch (e) {
+    console.warn('[paste] clipboard read:', e.message);
+    return '';
+  }
+}
+
+async function readClipboardHtml() {
+  try {
+    if (typeof clipboard.readHTML !== 'function') return '';
+    const value = await Promise.resolve(clipboard.readHTML());
+    return typeof value === 'string' ? value : '';
+  } catch {
+    return '';
+  }
+}
+
+async function writeClipboard({ text, html }) {
+  if (html && typeof clipboard.write === 'function') {
+    await Promise.resolve(clipboard.write({ text, html }));
+    return;
+  }
+  await Promise.resolve(clipboard.writeText(text));
+}
+
+async function clearClipboard() {
+  if (typeof clipboard.clear === 'function') await Promise.resolve(clipboard.clear());
+  else await Promise.resolve(clipboard.writeText(''));
+}
+
+/**
  * @param {object} opts
  * @param {string}  opts.text            - plain text to paste
  * @param {string}  [opts.html]          - HTML version (optional, falls back to text)
@@ -29,8 +67,8 @@ const RESTORE_DELAY_MS = 600;  // give the target app time to paste
  */
 async function pasteText({ text, html, restore = true, method = 'ctrl-v', hwnd = 0, allowKeys = true }) {
   // 1. Snapshot current clipboard (best effort — never block the paste)
-  const prevText = safe(() => clipboard.readText(), '');
-  const prevHTML = safe(() => (typeof clipboard.readHTML === 'function' ? clipboard.readHTML() : ''), '');
+  const prevText = await readClipboardText();
+  const prevHTML = await readClipboardHtml();
 
   // 2. Bring the target window forward (verified — SetForegroundWindow can fail)
   let pasted = allowKeys;
@@ -39,12 +77,9 @@ async function pasteText({ text, html, restore = true, method = 'ctrl-v', hwnd =
     if (!pasted) console.warn('[paste] could not focus the target window — text left on the clipboard');
   }
 
-  // 3. Write new content
-  if (html && typeof clipboard.write === 'function') {
-    clipboard.write({ text, html });
-  } else {
-    clipboard.writeText(text);
-  }
+  // 3. Write new content — awaited, otherwise the keystroke could paste
+  //    the *previous* clipboard content.
+  await writeClipboard({ text, html });
 
   // 4. Simulate paste keystroke via PowerShell
   if (pasted) {
@@ -55,24 +90,20 @@ async function pasteText({ text, html, restore = true, method = 'ctrl-v', hwnd =
   //    Only when the paste actually happened — otherwise the user needs
   //    the text to paste manually.
   if (restore && pasted) {
-    setTimeout(() => safe(() => {
-      if (prevHTML && typeof clipboard.write === 'function') {
-        clipboard.write({ text: prevText, html: prevHTML });
-      } else if (prevText) {
-        clipboard.writeText(prevText);
-      } else {
-        // The clipboard was empty before — put it back to empty.
-        if (typeof clipboard.clear === 'function') clipboard.clear();
-        else clipboard.writeText('');
-      }
-    }), RESTORE_DELAY_MS);
+    setTimeout(() => {
+      (async () => {
+        try {
+          if (prevHTML) await writeClipboard({ text: prevText, html: prevHTML });
+          else if (prevText) await Promise.resolve(clipboard.writeText(prevText));
+          else await clearClipboard();
+        } catch (e) {
+          console.warn('[paste] clipboard restore:', e.message);
+        }
+      })();
+    }, RESTORE_DELAY_MS);
   }
 
   return { pasted };
-}
-
-function safe(fn, fallback) {
-  try { return fn(); } catch (e) { console.warn('[paste] clipboard:', e.message); return fallback; }
 }
 
 /**
@@ -84,4 +115,4 @@ async function simulatePaste(method) {
   await winHelper.sendKeys(key);
 }
 
-module.exports = { pasteText };
+module.exports = { pasteText, readClipboardText };

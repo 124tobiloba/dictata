@@ -15,13 +15,13 @@ const https = require('https');
 const { SseParser } = require('./sse');
 
 const HOST = 'generativelanguage.googleapis.com';
-const DEFAULT_MODEL = 'gemini-3.5-flash';
-// Tried in order when the preferred model fails (timeout / 5xx / 429).
-// The "-lite" tier is noticeably faster but is often at capacity and can
-// hang without ever answering — the chain guarantees a result.
-const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'];
-const TIMEOUT_MS = 15000;        // per request
-const TOTAL_BUDGET_MS = 28000;  // for the whole model chain
+// Capacity on the newest models is unreliable: they regularly take 20-30 s
+// or stop answering altogether. 2.5-flash is consistently fast right now,
+// so it is the default and the first entry of the fallback chain.
+const DEFAULT_MODEL = 'gemini-2.5-flash';
+const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.6-flash'];
+const TIMEOUT_MS = 30000;        // per request
+const TOTAL_BUDGET_MS = 60000;  // for the whole model chain
 const MAX_OUTPUT_TOKENS = 4096;
 
 // Models Google has retired for new keys → map to a working one.
@@ -31,6 +31,39 @@ const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 function resolveModel(model) {
   if (!model || RETIRED.test(model)) return DEFAULT_MODEL;
   return model;
+}
+
+/** thinkingLevel is only understood by the Gemini 3.x models. */
+function supportsThinkingLevel(model) {
+  const m = /^gemini-(\d+)\./.exec(model || '');
+  return m ? Number(m[1]) >= 3 : false;
+}
+
+/**
+ * Build the request body for a model.
+ *
+ * The body is model-specific: sending thinkingConfig to a model that does
+ * not understand it fails with "Thinking level is not supported for this
+ * model." — a 400 that no retry can fix.
+ */
+function buildRequestBody({ model, wavBase64, systemPrompt }) {
+  return JSON.stringify({
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{
+      role: 'user',
+      parts: [
+        { inlineData: { mimeType: 'audio/wav', data: wavBase64 } },
+        { text: 'Transcribe this recording now.' },
+      ],
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
+      ...(supportsThinkingLevel(model)
+        ? { thinkingConfig: { thinkingLevel: 'minimal' } }
+        : {}),
+    },
+  });
 }
 
 /**
@@ -52,26 +85,14 @@ async function transcribe(opts) {
   const useModel = resolveModel(model);
   const t0 = Date.now();
 
-  const buildBody = () => JSON.stringify({
-    systemInstruction: { parts: [{ text: buildSystemPrompt({
-      style, appName, dictionary, replacements,
-      language, userName, textBefore, textAfter, prevCleaned,
-    }) }] },
-    contents: [{
-      role: 'user',
-      parts: [
-        { inlineData: { mimeType: 'audio/wav', data: wav.toString('base64') } },
-        { text: 'Transcribe this recording now.' },
-      ],
-    }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-      thinkingConfig: { thinkingLevel: 'minimal' },
-    },
+  const systemPrompt = buildSystemPrompt({
+    style, appName, dictionary, replacements,
+    language, userName, textBefore, textAfter, prevCleaned,
   });
 
   // Try the preferred model first, then walk down the fallback chain.
+  //   • 429 / 503 → the model is at capacity: wait and retry the same one
+  //   • timeout   → the model is not answering at all: use the next one
   const chain = [useModel, ...FALLBACK_MODELS.filter((m) => m !== useModel)];
   let result = null;
   let lastErr = null;
@@ -79,23 +100,31 @@ async function transcribe(opts) {
   for (let i = 0; i < chain.length; i++) {
     const candidate = chain[i];
     const remaining = TOTAL_BUDGET_MS - (Date.now() - t0);
-    if (i > 0 && remaining < 4000) break;      // no time left for another try
-    const timeout = Math.max(4000, Math.min(TIMEOUT_MS, remaining));
+    if (i > 0 && remaining < 5000) break;      // no time left for another try
+    const timeout = Math.max(5000, Math.min(TIMEOUT_MS, remaining));
+    const body = buildRequestBody({ model: candidate, wavBase64: wav.toString('base64'), systemPrompt });
+    const path = `/v1beta/models/${candidate}:streamGenerateContent?alt=sse`;
 
-    try {
-      const body = buildBody();
-      const path = `/v1beta/models/${candidate}:streamGenerateContent?alt=sse`;
-      result = await postStreaming(path, body, apiKey, onPartial, t0, signal, timeout);
-      if (candidate !== useModel) {
-        console.warn(`[gemini] ${useModel} failed (${lastErr?.message}) — ${candidate} answered instead`);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        result = await postStreaming(path, body, apiKey, onPartial, t0, signal, timeout);
+        if (candidate !== useModel) {
+          console.warn(`[gemini] ${useModel} failed (${lastErr?.message}) — ${candidate} answered instead`);
+        }
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (err?.message === 'Cancelled') throw err;
+        if (!isRetryable(err)) throw err;        // 400 / 401 / 403 → fail fast
+        console.warn(`[gemini] ${candidate}: ${err.message}`);
+        const timedOut = /timed out/i.test(err.message);
+        if (timedOut || attempt === 1) break;    // timeout → try the next model
+        // Capacity error: wait as long as the API asked us to.
+        await sleep(err.retryAfter || (attempt === 0 ? 2000 : 4000));
+        if (Date.now() - t0 > TOTAL_BUDGET_MS) break;
       }
-      break;
-    } catch (err) {
-      lastErr = err;
-      if (err?.message === 'Cancelled') throw err;
-      if (!isRetryable(err)) throw err;        // 400 / 401 / 403 → fail fast
-      console.warn(`[gemini] ${candidate}: ${err.message}`);
     }
+    if (result) break;
   }
 
   if (!result) throw lastErr || new Error('Gemini request failed');
@@ -191,6 +220,11 @@ function postStreaming(path, body, apiKey, onPartial, t0, signal, timeoutMs = TI
           try { msg = JSON.parse(raw).error?.message || msg; } catch {}
           const err = new Error(`Gemini ${res.statusCode}: ${msg}`);
           err.status = res.statusCode;
+          // The API tells us how long to wait when it is rate limiting us.
+          const retryAfter = Number(res.headers['retry-after']);
+          if (Number.isFinite(retryAfter) && retryAfter > 0) {
+            err.retryAfter = Math.min(retryAfter * 1000, 15000);
+          }
           return done(reject, err);
         }
         // A final partial line may still be buffered.
@@ -240,12 +274,21 @@ function isRetryable(err) {
   return /network error|timed out|socket hang up/i.test(err?.message || '');
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Quick key check for the Settings "Test" button. */
 function testKey(apiKey) {
   if (!apiKey) return Promise.resolve({ ok: false, message: 'No key entered' });
   const body = JSON.stringify({
     contents: [{ parts: [{ text: 'Reply with OK' }] }],
-    generationConfig: { maxOutputTokens: 5, thinkingConfig: { thinkingLevel: 'minimal' } },
+    generationConfig: {
+      maxOutputTokens: 5,
+      ...(supportsThinkingLevel(DEFAULT_MODEL)
+        ? { thinkingConfig: { thinkingLevel: 'minimal' } }
+        : {}),
+    },
   });
   // The same model chain as a real dictation — a busy model must not make
   // a perfectly valid key look broken.
@@ -266,4 +309,7 @@ function testKey(apiKey) {
   })();
 }
 
-module.exports = { transcribe, testKey, resolveModel, buildSystemPrompt, DEFAULT_MODEL, FALLBACK_MODELS };
+module.exports = {
+  transcribe, testKey, resolveModel, buildSystemPrompt, buildRequestBody,
+  supportsThinkingLevel, DEFAULT_MODEL, FALLBACK_MODELS,
+};

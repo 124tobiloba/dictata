@@ -7,7 +7,9 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "dist": "electron-builder --win",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:paste": "electron scripts/test-paste.js",
+    "test:api": "node scripts/test-api.js"
   },
   "author": "Vilian",
   "license": "MIT",

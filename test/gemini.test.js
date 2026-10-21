@@ -1,7 +1,7 @@
 // Unit tests for the prompt builder and model resolution.
 const test = require('node:test');
 const assert = require('node:assert');
-const { resolveModel, buildSystemPrompt, DEFAULT_MODEL } = require('../src/main/gemini');
+const { resolveModel, buildSystemPrompt, buildRequestBody, supportsThinkingLevel, DEFAULT_MODEL } = require('../src/main/gemini');
 
 test('retired models fall back to the default', () => {
   assert.equal(resolveModel('gemini-1.5-pro'), DEFAULT_MODEL);
@@ -45,4 +45,32 @@ test('the prompt never leaks empty sections', () => {
   assert.doesNotMatch(p, /Expand/);
   assert.doesNotMatch(p, /Text before cursor/);
   assert.doesNotMatch(p, /Previous dictation/);
+});
+
+test('only the 3.x models accept a thinking level', () => {
+  // Older models reject thinkingConfig with
+  // "Thinking level is not supported for this model."
+  assert.equal(supportsThinkingLevel('gemini-3.5-flash'), true);
+  assert.equal(supportsThinkingLevel('gemini-3.6-flash'), true);
+  assert.equal(supportsThinkingLevel('gemini-3.5-flash-lite'), true);
+  assert.equal(supportsThinkingLevel('gemini-2.5-flash'), false);
+  assert.equal(supportsThinkingLevel('gemini-2.0-flash'), false);
+  assert.equal(supportsThinkingLevel('gemini-flash-latest'), false);
+  assert.equal(supportsThinkingLevel(''), false);
+});
+
+test('the request body only sends a thinking level to models that support it', () => {
+  const base = { wavBase64: 'AAA=', systemPrompt: 'test' };
+
+  const old = JSON.parse(buildRequestBody({ ...base, model: 'gemini-2.5-flash' }));
+  assert.equal(old.generationConfig.thinkingConfig, undefined,
+    '2.5-flash rejects thinkingConfig with a 400');
+
+  const modern = JSON.parse(buildRequestBody({ ...base, model: 'gemini-3.5-flash' }));
+  assert.equal(modern.generationConfig.thinkingConfig.thinkingLevel, 'minimal');
+
+  // The audio travels inline, so the body must contain the base64 payload.
+  assert.equal(modern.contents[0].parts[0].inlineData.mimeType, 'audio/wav');
+  assert.equal(modern.contents[0].parts[0].inlineData.data, 'AAA=');
+  assert.equal(modern.systemInstruction.parts[0].text, 'test');
 });

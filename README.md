@@ -37,7 +37,9 @@ the result straight into the app you were typing in.
 npm install
 npm start          # run the app
 npm run dev        # run with dev flags
-npm test           # run the unit tests
+npm test           # unit tests (fast, no network, no microphone)
+npm run test:api   # live check against the Gemini API
+npm run test:paste # end-to-end check of the paste pipeline
 npm run dist       # build a Windows installer (NSIS) into dist/
 ```
 
@@ -104,6 +106,38 @@ hotkey ──► state machine (IDLE → LISTENING → PROCESSING)
 - **Everything testable is pure.** The interaction rules, the WAV encoder, the
   SSE parser, the prompt builder and the settings merge live in modules that
   have no Electron dependency, so they are covered by `node --test`.
+
+## Testing
+
+Three levels, cheapest first:
+
+| Command | What it covers | Needs |
+|---|---|---|
+| `npm test` | The pure logic: push-to-talk rules, WAV encoding, SSE parsing, prompt building, model resolution, settings merge | nothing |
+| `npm run test:api` | The live Gemini request: audio encoding, request body, model selection, fallback chain, response parsing | network + API key |
+| `npm run test:paste` | The paste pipeline end-to-end: window targeting, `SetForegroundWindow`, `SendKeys`, clipboard snapshot and restore | Windows desktop (it opens Notepad) |
+
+`npm run test:paste` opens Notepad, dictates "into" it, then reads Notepad's
+content back to prove the text arrived, and checks that the clipboard was
+restored afterwards. It closes Notepad when it is done.
+
+### Manual checklist
+
+1. `npm start`, then press `Alt+Shift+D`, speak, press it again — the text
+   lands in the app you were typing in.
+2. Press `Alt+Shift+D` twice quickly — the pill shows **LOCKED** and keeps
+   recording. Press once more to stop. (This is the double-tap fix.)
+3. Press `Alt+Shift+C` during recording — recording stops, nothing is pasted.
+4. Press `Alt+Shift+V` — the last transcript is pasted again.
+5. Open **History**, click **Paste again** — the text goes to your app, not
+   into the History window. Copy something before you start: the clipboard
+   must be restored afterwards.
+6. **Settings → AI & Style → Test** — reports "Key works ✓".
+7. Say a long sentence and check that filler words are removed and
+   punctuation is fixed.
+8. Say a word from your **dictionary** and check that it is spelled correctly.
+9. Dictate into an app that runs as administrator — pasting there is not
+   possible with `SendKeys`; the text stays on the clipboard instead.
 
 ## Known limitations
 

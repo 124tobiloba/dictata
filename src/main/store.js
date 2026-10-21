@@ -17,7 +17,7 @@ const DEFAULTS = {
       pasteLast:  ['Alt', 'Shift', 'V'],   // V = Voice-paste — re-paste last text
     },
     doubleTapLocks: true,       // double-tap push-to-talk => hands-free
-    model: 'gemini-3.5-flash',
+    model: 'gemini-2.5-flash',
     style: 'polished',          // polished | casual | verbatim
     appAwareStyle: true,        // adapt tone to the focused app
     language: 'auto',

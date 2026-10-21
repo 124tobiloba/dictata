@@ -369,10 +369,12 @@
         <div class="row">
           <label>Model</label>
           <select id="model">
-            <option value="gemini-3.5-flash">Gemini 3.5 Flash (recommended)</option>
-            <option value="gemini-3.6-flash">Gemini 3.6 Flash (newer)</option>
-            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (fastest, often busy)</option>
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash (recommended — fastest, most reliable)</option>
+            <option value="gemini-3.5-flash">Gemini 3.5 Flash (newer, sometimes slow)</option>
+            <option value="gemini-3.6-flash">Gemini 3.6 Flash (newest, sometimes slow)</option>
+            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (often at capacity)</option>
           </select>
+          <div class="hint">If a model is busy, Voice Flow automatically retries with the next one.</div>
         </div>
       </div>
 

@@ -293,6 +293,14 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
   const controller = new AbortController();
   activeAbort = controller;
 
+  // A slow model must not look frozen — show the elapsed time while we wait.
+  let lastPartialAt = Date.now();
+  const keepAlive = setInterval(() => {
+    if (Date.now() - lastPartialAt < 3000) return;   // partial text is showing
+    const secs = Math.round((Date.now() - tStart) / 1000);
+    sendToStatus('vf:status', { state: 'processing', subtext: `Still working… ${secs}s` });
+  }, 2000);
+
   try {
     const s = store.settings;
     const snap = store.snapshot();
@@ -313,6 +321,7 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
       signal: controller.signal,
       // Stream partial cleaned text to the pill in real time
       onPartial: (partial) => {
+        lastPartialAt = Date.now();
         sendToStatus('vf:status', { state: 'processing', subtext: partial.slice(0, 40) });
       },
     });
@@ -348,6 +357,7 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
     sendToStatus('vf:status', { state: 'error', message: err.message });
     notifyError(err.message);
   } finally {
+    clearInterval(keepAlive);
     if (activeAbort === controller) activeAbort = null;
     // Only clear the state when this session is still the current one —
     // a newer recording must not be interrupted by an old one finishing.
