@@ -29,14 +29,18 @@ const DEFAULTS = {
     apiKey: '',                 // Gemini key, entered once in Settings
     launchAtLogin: true,        // start with Windows
     maxRecordingSec: 300,       // hard cap per dictation (seconds)
+    dashboardEnabled: true,     // local web dashboard on http://127.0.0.1
+    dashboardPort: 7788,
   },
   dictionary: [],               // [{ term, note? }]
   replacements: [],             // [{ from, to }]
   history: [],                  // newest first
+  events: [],                   // persisted activity log (newest first)
   stats: { words: 0, sessions: 0, msSpoken: 0 },
 };
 
 const HISTORY_LIMIT = 500;
+const EVENT_LIMIT = 500;
 const SECRET_PREFIX = 'enc:';
 
 /** Encrypt a secret for storage. Falls back to plain text if unavailable. */
@@ -78,6 +82,7 @@ function mergeDefaults(raw) {
     dictionary: src.dictionary || [],
     replacements: src.replacements || [],
     history: src.history || [],
+    events: src.events || [],
     stats: { ...DEFAULTS.stats, ...(src.stats || {}) },
   };
 }
@@ -143,6 +148,13 @@ class Store {
 
   setDictionary(list) { this.data.dictionary = list; this._save(); }
   setReplacements(list) { this.data.replacements = list; this._save(); }
+
+  /** Persist an activity event (dictations, errors, info). */
+  addEvent(entry) {
+    this.data.events.unshift(entry);
+    if (this.data.events.length > EVENT_LIMIT) this.data.events.length = EVENT_LIMIT;
+    this._save();
+  }
 
   addHistory(entry) {
     this.data.history.unshift(entry);

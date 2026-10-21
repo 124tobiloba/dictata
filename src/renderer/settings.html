@@ -293,6 +293,23 @@
       </div>
 
       <div class="section">
+        <div class="section-title">Web dashboard</div>
+        <div class="row">
+          <div><label>Show activity in the browser</label><div class="hint">A local page that shows every dictation and error as it happens</div></div>
+          <label class="toggle"><input type="checkbox" id="dashboardEnabled"><span class="slider"></span></label>
+        </div>
+        <div class="row">
+          <div><label>Port</label><div class="hint">The dashboard is served on 127.0.0.1 only</div></div>
+          <input type="number" id="dashboardPort" min="1024" max="65535" step="1" style="width:110px" />
+        </div>
+        <div class="row">
+          <button class="btn secondary" id="openDashboard">Open dashboard</button>
+          <button class="btn secondary" id="testDashboard">Send test event</button>
+          <span class="hint" id="dashboardUrl"></span>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="section-title">Recording</div>
         <div class="row">
           <div><label>Microphone</label><div class="hint">Which input to record from</div></div>

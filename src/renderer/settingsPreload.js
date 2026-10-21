@@ -8,4 +8,7 @@ contextBridge.exposeInMainWorld('vf', {
   setDictionary: (list) => ipcRenderer.invoke('vf:set-dictionary', list),
   setReplacements: (list) => ipcRenderer.invoke('vf:set-replacements', list),
   openExternal: (url) => ipcRenderer.invoke('vf:open-external', url),
+  dashboardUrl: () => ipcRenderer.invoke('vf:dashboard-url'),
+  openDashboard: () => ipcRenderer.invoke('vf:open-dashboard'),
+  dashboardTest: () => ipcRenderer.invoke('vf:dashboard-test'),
 });

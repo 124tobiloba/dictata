@@ -96,6 +96,7 @@ async function transcribe(opts) {
   const chain = [useModel, ...FALLBACK_MODELS.filter((m) => m !== useModel)];
   let result = null;
   let lastErr = null;
+  let answeredModel = null;
 
   for (let i = 0; i < chain.length; i++) {
     const candidate = chain[i];
@@ -108,6 +109,7 @@ async function transcribe(opts) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         result = await postStreaming(path, body, apiKey, onPartial, t0, signal, timeout);
+        answeredModel = candidate;
         if (candidate !== useModel) {
           console.warn(`[gemini] ${useModel} failed (${lastErr?.message}) — ${candidate} answered instead`);
         }
@@ -136,7 +138,13 @@ async function transcribe(opts) {
   if (result.truncated) {
     console.warn('[gemini] response hit the token limit — transcript may be cut off');
   }
-  return { raw: cleaned, cleaned, language, truncated: !!result.truncated };
+  return {
+    raw: cleaned,
+    cleaned,
+    language,
+    truncated: !!result.truncated,
+    model: answeredModel || useModel,
+  };
 }
 
 function buildSystemPrompt({ style, appName, dictionary, replacements,

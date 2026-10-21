@@ -22,6 +22,8 @@ const { Recorder } = require('./recorder');
 const { transcribe, testKey } = require('./gemini');
 const { pasteText } = require('./paste');
 const { winHelper } = require('./winhelper');
+const { EventBus } = require('./events');
+const { DashboardServer } = require('./dashboard');
 
 const IS_DEV = process.argv.includes('--dev');
 const getApiKey = () => (store.settings.apiKey || '').trim() || process.env.GEMINI_API_KEY || '';
@@ -41,6 +43,20 @@ let sessionId = 0;                              // bumped for every recording se
 const store = new Store();
 const recorder = new Recorder();
 const hotkeys = new HotkeyService(store);
+const bus = new EventBus({ limit: 500 });
+const dashboard = new DashboardServer({ store, bus, port: store.settings.dashboardPort });
+
+// The bus carries a little app state so the dashboard can render it.
+bus.appState = 'idle';
+bus.handsFree = false;
+bus.startedAt = Date.now();
+bus.version = app.getVersion();
+
+// Errors and notes are kept on disk so the dashboard has a history even
+// after a restart. Dictations live in the history array already.
+bus.on('event', (event) => {
+  if (event.type === 'error' || event.type === 'info') store.addEvent(event);
+});
 
 let statusWindow = null;
 let settingsWindow = null;
@@ -72,13 +88,26 @@ app.whenReady().then(() => {
   winHelper.start();
   applyLoginItem();
   applyRecorderLimits();
+  startDashboard();
   if (!getApiKey()) createSettingsWindow();   // first run: ask for the key
 });
+
+/** The local web dashboard that shows everything the app is doing. */
+async function startDashboard() {
+  if (!store.settings.dashboardEnabled) return;
+  try {
+    await dashboard.start();
+    updateTrayMenu();
+  } catch (err) {
+    console.error('[dashboard] could not start:', err.message);
+  }
+}
 
 app.on('before-quit', () => {
   hotkeys.stop();
   recorder.cancel();
   winHelper.stop();
+  dashboard.stop();
 });
 
 function applyLoginItem() {
@@ -130,6 +159,8 @@ function createStatusWindow() {
   recorder.on('error', (err) => {
     console.error('[recorder]', err.message);
     state = STATE.IDLE;
+    bus.appState = 'idle';
+    bus.publish('error', { message: err.message, kind: 'microphone', fatal: false });
     sendToStatus('vf:status', { state: 'error', message: err.message });
     notifyError(err.message);
   });
@@ -197,11 +228,23 @@ function updateTrayMenu() {
     { type: 'separator' },
     { label: `${stats.words.toLocaleString()} words dictated`, enabled: false },
     { type: 'separator' },
+    { label: dashboard.running ? 'Open Dashboard' : 'Start Dashboard', click: () => openDashboard() },
     { label: 'History', click: () => createHistoryWindow() },
     { label: 'Settings', click: () => createSettingsWindow() },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]));
+}
+
+/** Open the web dashboard in the default browser. */
+async function openDashboard() {
+  if (!dashboard.running) await startDashboard();
+  const url = dashboard.url;
+  if (url) {
+    shell.openExternal(url);
+  } else {
+    notifyError('The dashboard could not be started — check the log file.');
+  }
 }
 
 /** Surface an error that the 2-second pill would otherwise swallow. */
@@ -251,6 +294,8 @@ hotkeys.on('paste-last', () => {
 function beginRecording() {
   sessionId++;
   cancelActiveRequest();
+  lastPartialText = '';
+  lastPartialAt = 0;
   setState(STATE.LISTENING);
   recorder.start();
   // The foreground window is looked up while the user is speaking, so the
@@ -268,6 +313,19 @@ function cancelActiveRequest() {
   if (!activeAbort) return;
   try { activeAbort.abort(); } catch { /* ignore */ }
   activeAbort = null;
+}
+
+// Partial transcripts arrive in bursts — throttle them so the dashboard
+// stream stays readable.
+let lastPartialText = '';
+let lastPartialAt = 0;
+function publishPartial(text) {
+  const now = Date.now();
+  if (!text || text === lastPartialText) return;
+  if (now - lastPartialAt < 120) return;
+  lastPartialText = text;
+  lastPartialAt = now;
+  bus.publish('partial', { text });
 }
 
 // ── Recording done → Gemini → paste ──────────────────────────────────────────
@@ -323,6 +381,7 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
       onPartial: (partial) => {
         lastPartialAt = Date.now();
         sendToStatus('vf:status', { state: 'processing', subtext: partial.slice(0, 40) });
+        publishPartial(partial);
       },
     });
 
@@ -333,12 +392,37 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
     lastCleaned = result.cleaned;
 
     const id = crypto.randomUUID();
-    store.addHistory({ id, raw: result.raw, cleaned: result.cleaned, durationMs, at: Date.now() });
+    const transcribeMs = Date.now() - tStart;
+    const entry = {
+      id,
+      raw: result.raw,
+      cleaned: result.cleaned,
+      durationMs,
+      transcribeMs,
+      model: result.model,
+      at: Date.now(),
+    };
+    store.addHistory(entry);
     updateTrayMenu();
 
+    const pasteStart = Date.now();
     const { pasted } = await pasteInto(result.cleaned);
+    const pasteMs = Date.now() - pasteStart;
 
     console.log(`[pipeline] stop → pasted in ${Date.now() - tStart} ms`);
+    bus.publish('dictation', {
+      ...entry,
+      pasteMs,
+      pasted,
+      truncated: !!result.truncated,
+      words: entry.cleaned.trim().split(/\s+/).filter(Boolean).length,
+    });
+    if (result.model && result.model !== s.model) {
+      bus.publish('info', {
+        message: `${s.model} was busy — ${result.model} answered instead`,
+        model: result.model,
+      });
+    }
     sendToStatus('vf:status', {
       state: 'done',
       text: result.cleaned,
@@ -346,14 +430,20 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
         ? 'Transcript cut off — try shorter dictations'
         : (pasted ? '' : 'Text copied — press Ctrl+V in your app'),
     });
-    if (!pasted) notifyError('Could not paste automatically — the text is on your clipboard.');
+    if (!pasted) {
+      const message = 'Could not paste automatically — the text is on your clipboard.';
+      bus.publish('error', { message, kind: 'paste', fatal: false });
+      notifyError(message);
+    }
     notifyHistory();
   } catch (err) {
     if (err?.message === 'Cancelled') {
       console.log('[pipeline] cancelled');
+      bus.publish('info', { message: 'Dictation cancelled', kind: 'cancel' });
       return;
     }
     console.error('[pipeline]', err);
+    bus.publish('error', { message: err.message, kind: 'api', fatal: true });
     sendToStatus('vf:status', { state: 'error', message: err.message });
     notifyError(err.message);
   } finally {
@@ -397,6 +487,9 @@ function setState(s) {
     handsFreeOn = false;
     hotkeys.reset();
   }
+  bus.appState = s;
+  bus.handsFree = handsFreeOn;
+  bus.publish('state', { state: s, handsFree: handsFreeOn });
   sendToStatus('vf:status', { state: s, handsFree: handsFreeOn });
 }
 
@@ -425,12 +518,25 @@ function setupIPC() {
     if ('launchAtLogin' in patch) applyLoginItem();
     if ('maxRecordingSec' in patch) applyRecorderLimits();
     if (patch.shortcuts) hotkeys.reload();
+    if ('dashboardEnabled' in patch) {
+      if (next.dashboardEnabled) startDashboard();
+      else {
+        dashboard.stop();
+        updateTrayMenu();
+      }
+    }
+    if ('dashboardPort' in patch && dashboard.running) {
+      dashboard.stop();
+      dashboard.port = Number(next.dashboardPort) || 7788;
+      startDashboard();
+    }
     sendToStatus('vf:settings', {
       sounds: !!next.sounds,
       microphoneId: next.microphoneId || 'default',
     });
     return next;
   });
+  ipcMain.handle('vf:dashboard-url', () => dashboard.url || null);
   ipcMain.handle('vf:test-key', (_e, key) => testKey((key || '').trim() || getApiKey()));
   ipcMain.handle('vf:set-dictionary', (_e, list) => { store.setDictionary(list); });
   ipcMain.handle('vf:set-replacements', (_e, list) => { store.setReplacements(list); });
@@ -438,6 +544,13 @@ function setupIPC() {
   // External links (e.g. Google AI Studio) open in the real browser
   ipcMain.handle('vf:open-external', (_e, url) => {
     if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
+  });
+
+  // The local dashboard
+  ipcMain.handle('vf:open-dashboard', () => openDashboard());
+  ipcMain.handle('vf:dashboard-test', () => {
+    bus.publish('info', { message: 'Dashboard test — the live stream is working.' });
+    return true;
   });
 
   // History

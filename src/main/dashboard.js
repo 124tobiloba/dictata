@@ -1,0 +1,274 @@
+/**
+ * dashboard.js — the local web dashboard.
+ *
+ * A tiny, dependency-free HTTP server (node:http) that serves the dashboard
+ * page and streams the app's activity to it.
+ *
+ *   GET /                     the page
+ *   GET /api/state            snapshot: app state, analytics, history, events
+ *   GET /api/history          the full history
+ *   GET /api/events           SSE stream of live events
+ *
+ * It binds to 127.0.0.1 only and requires a token on every API call, so
+ * nothing on the network (or a random web page in the browser) can read
+ * your transcripts.
+ */
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const { summarize } = require('./analytics');
+
+const ROOT = path.join(__dirname, '../dashboard');
+const DEFAULT_PORT = 7788;
+const HOST = '127.0.0.1';
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+
+/**
+ * One ordered stream out of three sources:
+ *   • the stored history (older dictations)
+ *   • the persisted events (errors and notes)
+ *   • the live bus (what is happening right now)
+ * Newest first, de-duplicated by id.
+ */
+function collectEvents(history = [], persisted = [], live = []) {
+  const map = new Map();
+
+  for (const h of history) {
+    if (!h) continue;
+    map.set(h.id, {
+      id: h.id,
+      ts: h.at || 0,
+      type: 'dictation',
+      text: h.cleaned || h.raw || '',
+      durationMs: h.durationMs,
+      transcribeMs: h.transcribeMs,
+      pasteMs: h.pasteMs,
+      model: h.model,
+      pasted: h.pasted,
+    });
+  }
+  for (const e of [...persisted, ...live]) {
+    if (e && e.id) map.set(e.id, e);
+  }
+
+  return [...map.values()]
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    .slice(0, 300);
+}
+
+class DashboardServer {
+  /**
+   * @param {object} opts
+   * @param {object} opts.store  the Store instance
+   * @param {object} opts.bus    the EventBus
+   * @param {number} [opts.port]
+   */
+  constructor(opts = {}) {
+    this.store = opts.store;
+    this.bus = opts.bus;
+    this.port = opts.port ?? DEFAULT_PORT;
+    this.token = crypto.randomBytes(16).toString('hex');
+    this.server = null;
+    this.clients = new Set();
+    this._onEvent = (event) => this._broadcast(event);
+  }
+
+  get running() {
+    return !!this.server;
+  }
+
+  /** The URL to open in a browser (contains the access token). */
+  get url() {
+    if (!this.server) return null;
+    const { port } = this.server.address();
+    return `http://${HOST}:${port}/?token=${this.token}`;
+  }
+
+  get baseUrl() {
+    if (!this.server) return null;
+    const { port } = this.server.address();
+    return `http://${HOST}:${port}`;
+  }
+
+  /**
+   * Start the server. Falls back to the next free port when the preferred
+   * one is taken.
+   */
+  async start() {
+    if (this.server) return this.url;
+
+    const preferred = this.port;
+    const candidates = preferred
+      ? [preferred, preferred + 1, preferred + 2, preferred + 3]
+      : [0];                       // 0 → let the OS pick a free port
+    let lastError = null;
+
+    for (const port of candidates) {
+      try {
+        await this._listen(port);
+        this.port = this.server.address().port;
+        this.bus.on('event', this._onEvent);
+        console.log(`[dashboard] serving ${this.url}`);
+        return this.url;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error('could not start the dashboard server');
+  }
+
+  _listen(port) {
+    return new Promise((resolve, reject) => {
+      const server = http.createServer((req, res) => this._handle(req, res));
+      server.on('error', reject);
+      server.listen(port, HOST, () => {
+        server.removeListener('error', reject);
+        server.on('error', (err) => console.error('[dashboard]', err.message));
+        this.server = server;
+        resolve();
+      });
+    });
+  }
+
+  stop() {
+    if (!this.server) return;
+    this.bus.off('event', this._onEvent);
+    for (const res of this.clients) {
+      try { res.end(); } catch { /* already closed */ }
+    }
+    this.clients.clear();
+    try { this.server.close(); } catch { /* ignore */ }
+    this.server = null;
+  }
+
+  // ── Request handling ──────────────────────────────────────────────────────
+
+  async _handle(req, res) {
+    const url = new URL(req.url, `http://${HOST}:${this.port}`);
+    const pathname = url.pathname;
+
+    // Block DNS rebinding: only accept requests addressed to us.
+    if (!this._hostAllowed(req.headers.host)) {
+      return this._json(res, 403, { error: 'Host not allowed' });
+    }
+
+    if (pathname === '/api/events') {
+      if (!this._authorised(url)) return this._json(res, 401, { error: 'Bad token' });
+      return this._events(req, res);
+    }
+
+    if (pathname === '/api/state') {
+      if (!this._authorised(url)) return this._json(res, 401, { error: 'Bad token' });
+      return this._json(res, 200, this._state());
+    }
+
+    if (pathname === '/api/history') {
+      if (!this._authorised(url)) return this._json(res, 401, { error: 'Bad token' });
+      return this._json(res, 200, { history: this.store.snapshot().history });
+    }
+
+    // Static files
+    const file = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+    const full = path.join(ROOT, file);
+    if (!full.startsWith(ROOT)) return this._json(res, 403, { error: 'Forbidden' });
+
+    try {
+      const data = fs.readFileSync(full);
+      res.writeHead(200, {
+        'Content-Type': MIME[path.extname(full).toLowerCase()] || 'application/octet-stream',
+        'Cache-Control': 'no-store',
+      });
+      res.end(data);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+    }
+  }
+
+  _hostAllowed(host) {
+    if (!host) return false;
+    const allowed = [`${HOST}:${this.port}`, `localhost:${this.port}`, `[::1]:${this.port}`];
+    return allowed.includes(host);
+  }
+
+  _authorised(url) {
+    const token = url.searchParams.get('token');
+    return !!token && token === this.token;
+  }
+
+  _state() {
+    const snapshot = this.store.snapshot();
+    const live = this.bus.recent(200);
+    const events = collectEvents(snapshot.history, snapshot.events || [], live);
+    return {
+      app: {
+        state: this.bus.appState || 'idle',
+        handsFree: !!this.bus.handsFree,
+        model: snapshot.settings?.model || null,
+        startedAt: this.bus.startedAt || null,
+        version: this.bus.version || null,
+      },
+      analytics: summarize({
+        history: snapshot.history,
+        events,
+        stats: snapshot.stats,
+        fallbackModel: snapshot.settings?.model || null,
+      }),
+      history: snapshot.history,
+      events,
+    };
+  }
+
+  _events(req, res) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write('retry: 2000\n\n');
+    res.write(`event: hello\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+    this.clients.add(res);
+
+    const keepAlive = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch { /* client gone */ }
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      this.clients.delete(res);
+    });
+  }
+
+  _broadcast(event) {
+    if (!this.clients.size) return;
+    const payload = `data: ${JSON.stringify(event)}\n\n`;
+    for (const res of this.clients) {
+      try { res.write(payload); } catch { this.clients.delete(res); }
+    }
+  }
+
+  _json(res, status, body) {
+    const data = JSON.stringify(body);
+    res.writeHead(status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    res.end(data);
+  }
+}
+
+module.exports = { DashboardServer, DEFAULT_PORT, HOST };

@@ -88,6 +88,10 @@ hotkey ──► state machine (IDLE → LISTENING → PROCESSING)
 | `src/main/paste.js` | Clipboard save → write → paste → restore |
 | `src/main/winhelper.js` | Long-lived PowerShell helper (window focus, SendKeys) |
 | `src/main/store.js` | Settings, dictionary, history (JSON in `userData`) |
+| `src/main/events.js` | Activity event bus (typed events, rolling buffer) |
+| `src/main/analytics.js` | Pure aggregation for the dashboard charts |
+| `src/main/dashboard.js` | The local web dashboard (node:http + SSE) |
+| `src/dashboard/` | The dashboard page (HTML/CSS/JS, no build step) |
 | `src/main/logger.js` | Rolling file log in `%APPDATA%/voice-flow/logs/` |
 | `src/renderer/status*` | Status pill + microphone capture |
 | `src/renderer/settings*` | Settings window |
@@ -107,15 +111,58 @@ hotkey ──► state machine (IDLE → LISTENING → PROCESSING)
   SSE parser, the prompt builder and the settings merge live in modules that
   have no Electron dependency, so they are covered by `node --test`.
 
+## Web dashboard
+
+Voice Flow serves a live activity dashboard on your own machine:
+
+```
+http://127.0.0.1:7788/?token=…
+```
+
+Open it from the tray menu (**Open Dashboard**) — the link contains a
+per-session token. You can also find the URL in **Settings → Web dashboard**.
+
+The page shows, live:
+
+- every dictation as it lands, with its timing (`rec` / `transcribe` / `paste`)
+  and the model that answered
+- the words streaming in while the transcription is still running
+- every error, grouped by cause
+- charts: words per day, transcription latency, model usage, and the hours
+  you tend to dictate
+- counters: words today, sessions, speaking time, words per minute, average
+  latency, error rate
+
+There is a **Demo** button that replays a scripted session, so the page looks
+alive even when the app is idle.
+
+### Privacy
+
+The server binds to `127.0.0.1` only — it is not reachable from the network.
+Every API call needs the token from the URL, and requests with a foreign
+`Host` header are rejected, so a random web page in your browser cannot read
+your transcripts. Nothing is sent anywhere: the dashboard reads the same
+local store the app writes to.
+
+| Route | Purpose |
+|---|---|
+| `GET /` | the page |
+| `GET /api/state` | snapshot: app state, analytics, history, events |
+| `GET /api/history` | the full history |
+| `GET /api/events` | SSE stream of live events |
+
+Turn it off in **Settings → Web dashboard**.
+
 ## Testing
 
 Three levels, cheapest first:
 
 | Command | What it covers | Needs |
 |---|---|---|
-| `npm test` | The pure logic: push-to-talk rules, WAV encoding, SSE parsing, prompt building, model resolution, settings merge | nothing |
+| `npm test` | The pure logic: push-to-talk rules, WAV encoding, SSE parsing, prompt building, model resolution, settings merge, analytics | nothing |
 | `npm run test:api` | The live Gemini request: audio encoding, request body, model selection, fallback chain, response parsing | network + API key |
 | `npm run test:paste` | The paste pipeline end-to-end: window targeting, `SetForegroundWindow`, `SendKeys`, clipboard snapshot and restore | Windows desktop (it opens Notepad) |
+| `npm run test:dashboard` | The dashboard server: page, auth, state endpoint, live SSE delivery, port fallback | nothing |
 
 `npm run test:paste` opens Notepad, dictates "into" it, then reads Notepad's
 content back to prove the text arrived, and checks that the clipboard was

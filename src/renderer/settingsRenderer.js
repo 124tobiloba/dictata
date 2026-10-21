@@ -30,8 +30,27 @@ function loadGeneral() {
   bind('launchAtLogin',   s.launchAtLogin !== false, (v) => save({ launchAtLogin: v }));
   bindSelect('pasteMethod',s.pasteMethod,        (v) => save({ pasteMethod: v }));
   bindSelect('maxDuration', String(s.maxRecordingSec || 300), (v) => save({ maxRecordingSec: Number(v) }));
+  bind('dashboardEnabled', s.dashboardEnabled !== false, (v) => save({ dashboardEnabled: v }));
+  bindNumber('dashboardPort', s.dashboardPort || 7788, (v) => save({ dashboardPort: v }));
   bindText('userName',   s.userName || '',       (v) => save({ userName: v }));
   loadMicrophones(s.microphoneId || 'default');
+  loadDashboardLink();
+}
+
+/** Show the dashboard URL so it can be bookmarked. */
+async function loadDashboardLink() {
+  const url = await window.vf.dashboardUrl();
+  const el = document.getElementById('dashboardUrl');
+  if (el) el.textContent = url || 'The dashboard is not running.';
+  document.getElementById('openDashboard')?.addEventListener('click', async () => {
+    await window.vf.openDashboard();
+    loadDashboardLink();
+  });
+  document.getElementById('testDashboard')?.addEventListener('click', async () => {
+    await window.vf.dashboardTest();
+    const el = document.getElementById('dashboardUrl');
+    if (el) el.textContent = 'Test event sent — watch the page.';
+  });
 }
 
 /** Fill the microphone dropdown with the available inputs. */
@@ -192,6 +211,16 @@ function bindText(id, initial, onChange) {
   el.addEventListener('input', () => {
     clearTimeout(timer);
     timer = setTimeout(() => onChange(el.value), 400);
+  });
+}
+
+function bindNumber(id, initial, onChange) {
+  const el = document.getElementById(id);
+  el.value = initial;
+  let timer;
+  el.addEventListener('change', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => onChange(Number(el.value) || 0), 400);
   });
 }
 
