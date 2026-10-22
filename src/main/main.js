@@ -27,6 +27,7 @@ const { EventBus } = require('./events');
 const { DashboardServer } = require('./dashboard');
 const { wordCount, lastTarget } = require('./analytics');
 const { normalizeRetentionDays, cutoffFor, splitExpired, splitExpiredEvents } = require('./retention');
+const { createLedger } = require('./ledger');
 
 const IS_DEV = process.argv.includes('--dev');
 const getApiKey = () => (store.settings.apiKey || '').trim() || process.env.GEMINI_API_KEY || '';
@@ -78,6 +79,9 @@ let sessionId = 0;                              // bumped for every recording se
 
 // ── Singletons ────────────────────────────────────────────────────────────────
 const store = new Store();
+// The audit ledger lives beside the store so a storage move takes it along
+// (plan 03), but nothing that deletes a transcript ever opens it (D-11).
+const ledger = createLedger({ file: path.join(path.dirname(store.file), 'dictata-audit.ndjson') });
 const recorder = new Recorder();
 const hotkeys = new HotkeyService(store);
 const bus = new EventBus({ limit: 500 });
@@ -495,6 +499,19 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
     entry.pasted = pasted;
     entry.words = wordCount(entry.cleaned);
     store.addHistory(entry);
+    // One audit fact per dictation attempt: metadata only, never the text
+    // (D-11 / T-01-08). A transcription that could not paste is still a
+    // `failed` outcome — `errorKind` carries the distinction.
+    appendAudit({
+      ts: entry.at,
+      id,
+      outcome: pasted ? 'pasted' : 'failed',
+      targetApp: appName,
+      durationMs,
+      words: entry.words,
+      model: entry.model,
+      errorKind: pasted ? undefined : 'paste',
+    });
     // Sweep before publishing: the new row must not appear in the feed next to
     // an expired one. No timer runs this — it is call-site driven (D-05).
     sweepRetention();
@@ -533,6 +550,17 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
       return;
     }
     console.error('[pipeline]', err);
+    // A failed attempt still happened: audit the attempt, not the content.
+    // `Cancelled` returned above, so a cancel leaves no row (A3).
+    appendAudit({
+      ts: Date.now(),
+      id: crypto.randomUUID(),
+      outcome: 'failed',
+      targetApp: appName,
+      durationMs,
+      model: store.settings.model,
+      errorKind: 'api',
+    });
     bus.publish('error', { message: err.message, kind: 'api', fatal: true });
     sendToStatus('vf:status', { state: 'error', message: err.message });
     notifyError(err.message);
@@ -707,8 +735,26 @@ function getPrivacyFacts() {
   return {
     retentionDays: store.settings.retentionDays,
     storeDir: path.dirname(store.file),
-    auditCount: 0,   // replaced with ledger.count() when the audit log lands
+    auditCount: ledger.count(),
   };
+}
+
+// ── Audit ledger ──────────────────────────────────────────────────────────────
+/**
+ * Append one metadata-only audit row.
+ *
+ * Wrapped so a ledger failure can never reach the dictation pipeline: auditing
+ * observes a dictation, it must never break one. The row itself is sanitised by
+ * the ledger's allow-list, so no transcript text can be persisted.
+ *
+ * @param {object} row
+ */
+function appendAudit(row) {
+  try {
+    ledger.append(row);
+  } catch (e) {
+    console.warn('[ledger] append failed:', e.message);
+  }
 }
 
 // ── IPC from renderers ────────────────────────────────────────────────────────
@@ -757,6 +803,12 @@ function setupIPC() {
     store.updateSettings({ retentionDays });
     const removed = sweepRetention();
     return { retentionDays, removed };
+  });
+  // The only action that shrinks the audit log (T-01-09); it never touches
+  // a transcript.
+  ipcMain.handle('vf:clear-audit', () => {
+    ledger.clear();
+    return { cleared: true };
   });
 
   // External links (e.g. Google AI Studio) open in the real browser

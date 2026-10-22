@@ -212,14 +212,36 @@ function loadPrivacy() {
     document.getElementById('retentionDays').value = String(result.retentionDays);
     loadDataInfo();
   });
+  document.getElementById('clearAudit')?.addEventListener('click', clearAuditLog);
   loadDataInfo();
 }
 
-/** The resolved data folder, read-only — it is a fact, not a form field. */
+/** The resolved data folder and the audit count, read-only — facts, not fields. */
 async function loadDataInfo() {
   const info = await window.vf.dataInfo();
   const el = document.getElementById('dataInfo');
   if (el) el.textContent = info?.storeDir || '—';
+  renderAuditCount(info?.auditCount);
+}
+
+function renderAuditCount(value) {
+  const count = Number(value) || 0;
+  const el = document.getElementById('auditCount');
+  if (el) el.textContent = `${count.toLocaleString()} audit record${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Clearing the audit log is its own confirmed action (D-12). The confirmation
+ * names the count and says explicitly that transcripts are untouched, because
+ * the two records have separate lifecycles.
+ */
+async function clearAuditLog() {
+  const info = await window.vf.dataInfo();
+  const count = Number(info?.auditCount) || 0;
+  const label = `${count.toLocaleString()} audit record${count === 1 ? '' : 's'}`;
+  if (!confirm(`Delete ${label}? Your dictations are not touched.`)) return;
+  await window.vf.clearAudit();
+  await loadDataInfo();
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('vf', {
   dashboardTest: () => ipcRenderer.invoke('vf:dashboard-test'),
   setRetention: (days) => ipcRenderer.invoke('vf:set-retention', days),
   dataInfo: () => ipcRenderer.invoke('vf:data-info'),
+  clearAudit: () => ipcRenderer.invoke('vf:clear-audit'),
 });
