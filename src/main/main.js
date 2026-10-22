@@ -26,7 +26,7 @@ const { winHelper } = require('./winhelper');
 const { EventBus } = require('./events');
 const { DashboardServer } = require('./dashboard');
 const { wordCount, lastTarget } = require('./analytics');
-const { normalizeRetentionDays, cutoffFor, splitExpired, splitExpiredEvents } = require('./retention');
+const { normalizeRetentionDays, cutoffFor, splitExpired, splitExpiredEvents, sweepSummary } = require('./retention');
 const { createLedger } = require('./ledger');
 const { createStorage, samePath } = require('./storage');
 const { toCsv, historyRows, auditRows } = require('./exporter');
@@ -750,13 +750,17 @@ function sweepRetention() {
 
   if (newestId && expiredIds.includes(newestId)) rederiveLast();
 
-  if (removed) {
+  // Either collection expiring is a reason to notify: an events-only sweep is
+  // still a row that must disappear from an open dashboard (D-05 / WR-03).
+  const notice = sweepSummary({
+    historyRemoved: removed,
+    eventsRemoved: expiredEventIds.length,
+    days,
+  });
+  if (notice) {
     notifyHistory();
     updateTrayMenu();
-    bus.publish('info', {
-      message: `Expired ${removed} dictation${removed === 1 ? '' : 's'} older than ${days} days`,
-      kind: 'history',
-    });
+    bus.publish('info', { message: notice, kind: 'history' });
   }
   return removed;
 }

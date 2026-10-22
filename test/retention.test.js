@@ -2,6 +2,8 @@
 //   node --test test/retention.test.js
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const {
   RETENTION_CHOICES,
@@ -9,6 +11,7 @@ const {
   cutoffFor,
   splitExpired,
   splitExpiredEvents,
+  sweepSummary,
 } = require('../src/main/retention');
 
 /** A row shaped like a stored history entry. */
@@ -84,4 +87,30 @@ test('splitExpiredEvents expires an old event and keeps a boundary-equal one', (
   const { keep, expiredIds } = splitExpiredEvents(events, 1000);
   assert.deepEqual(keep.map((e) => e.id), ['mhqk3z1a-1', 'mhqk3z1a-2']);
   assert.deepEqual(expiredIds, ['mhqk3z1a-0']);
+});
+
+// ── WR-03: an events-only expiry must notify the dashboard ───────────────────
+test('a sweep summary covers history, events and both, and stays silent only when empty', () => {
+  assert.equal(sweepSummary({ days: 30 }), null);
+  assert.equal(
+    sweepSummary({ historyRemoved: 1, eventsRemoved: 0, days: 30 }),
+    'Expired 1 dictation older than 30 days',
+  );
+  // The events-only case is the D-05 hole: it must not be silent.
+  assert.equal(
+    sweepSummary({ historyRemoved: 0, eventsRemoved: 1, days: 30 }),
+    'Expired 1 old activity older than 30 days',
+  );
+  assert.equal(
+    sweepSummary({ historyRemoved: 2, eventsRemoved: 3, days: 90 }),
+    'Expired 2 dictations and 3 old activities older than 90 days',
+  );
+});
+
+test('main.js notifies on either collection expiring, not only on history', () => {
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8');
+  assert.match(main, /sweepSummary\(\{/);
+  assert.match(main, /eventsRemoved: expiredEventIds\.length/);
+  // The old gate that made an events-only sweep silent.
+  assert.doesNotMatch(main, /if \(removed\) \{\s*notifyHistory\(\);/);
 });

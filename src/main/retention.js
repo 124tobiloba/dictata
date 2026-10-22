@@ -90,10 +90,38 @@ function splitExpiredEvents(events = [], cutoff) {
   return { keep, expiredIds };
 }
 
+/**
+ * The user-facing summary of one sweep, or null when nothing expired.
+ *
+ * D-05 covers both collections: an expired failed attempt is as visible on the
+ * dashboard as an expired dictation, so an events-only sweep must still notify
+ * an open tab to reload. Keeping the wording here makes that rule testable
+ * without Electron.
+ *
+ * @param {object} input
+ * @param {number} [input.historyRemoved]
+ * @param {number} [input.eventsRemoved]
+ * @param {number} input.days
+ * @returns {string|null}
+ */
+function sweepSummary({ historyRemoved = 0, eventsRemoved = 0, days } = {}) {
+  const dictations = Number(historyRemoved) || 0;
+  const activities = Number(eventsRemoved) || 0;
+  if (dictations === 0 && activities === 0) return null;
+
+  const dictationText = `${dictations} dictation${dictations === 1 ? '' : 's'}`;
+  const activityText = `${activities} old activit${activities === 1 ? 'y' : 'ies'}`;
+  const what = dictations && activities
+    ? `${dictationText} and ${activityText}`
+    : (dictations ? dictationText : activityText);
+  return `Expired ${what} older than ${days} days`;
+}
+
 module.exports = {
   RETENTION_CHOICES,
   normalizeRetentionDays,
   cutoffFor,
   splitExpired,
   splitExpiredEvents,
+  sweepSummary,
 };
