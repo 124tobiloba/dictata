@@ -214,13 +214,27 @@ function createStorage(opts = {}) {
   /**
    * Delete only the files a move could have written at a target. Files only —
    * never a directory, and never through a symlinked-looking path.
+   *
+   * Returns the files that are still there. An offline share or a locked file
+   * leaves debris that would make `moveTo` refuse the folder forever, so the
+   * caller must know rather than assume the cleanup worked (WR-01).
+   *
+   * @param {string} dir
+   * @returns {string[]}  files that could not be removed (empty when clean)
    */
   function removeMoveFiles(dir) {
+    const failed = [];
     for (const name of MOVE_FILES) {
+      const file = path.join(dir, name);
       try {
-        fs.rmSync(path.join(dir, name), { force: true });
-      } catch { /* a file that cannot be removed is not a reason to abort */ }
+        fs.rmSync(file, { force: true });
+      } catch {
+        failed.push(file);
+        continue;
+      }
+      if (fs.existsSync(file)) failed.push(file);   // rm was a silent no-op
     }
+    return failed;
   }
 
   /**
@@ -251,7 +265,17 @@ function createStorage(opts = {}) {
       return committed;
     }
 
-    if (!samePath(move.to, pointer.dir)) removeMoveFiles(move.to);
+    // Keep `dir` on the source. If the partial files cannot be removed — the
+    // share is offline, a handle is locked — do NOT clear the journal: the
+    // leftover dictata.json would otherwise make `moveTo` refuse this folder
+    // permanently with no record of why. Keeping `move` lets the next launch
+    // retry, and the warning makes the failure visible now (WR-01).
+    const leftovers = samePath(move.to, pointer.dir) ? [] : removeMoveFiles(move.to);
+    if (leftovers.length) {
+      console.warn('[storage] could not remove a partial copy; keeping the journal for a retry:', leftovers.join(', '));
+      return pointer;
+    }
+
     const cleared = { ...pointer, move: null };
     writePointer(cleared);
     return cleared;
@@ -403,11 +427,15 @@ function createStorage(opts = {}) {
       // dir and pendingDelete are unchanged: the source is still authoritative.
       writePointer({ version: 1, dir: pointer.dir, pendingDelete: pointer.pendingDelete, move });
 
-      fs.copyFileSync(oldStoreFile, path.join(resolvedTarget, STORE_NAME), fs.constants.COPYFILE_EXCL);
+      // Register each name BEFORE the copy: a copy that throws mid-write has
+      // still created a partial target, and the guard above proved this
+      // folder held no dictata.json at entry, so the catch may remove it and
+      // let the same folder be retried (WR-01).
       created.push(STORE_NAME);
+      fs.copyFileSync(oldStoreFile, path.join(resolvedTarget, STORE_NAME), fs.constants.COPYFILE_EXCL);
       if (fs.existsSync(oldLedgerFile)) {
-        fs.copyFileSync(oldLedgerFile, path.join(resolvedTarget, LEDGER_NAME), fs.constants.COPYFILE_EXCL);
         created.push(LEDGER_NAME);
+        fs.copyFileSync(oldLedgerFile, path.join(resolvedTarget, LEDGER_NAME), fs.constants.COPYFILE_EXCL);
       }
 
       if (!verifyCopy(move)) throw new Error('copy did not read back');

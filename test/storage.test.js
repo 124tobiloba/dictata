@@ -349,6 +349,83 @@ test('a fully copied, verifying target is committed and the source removed', () 
   }
 });
 
+// ── WR-01: a partial target must never block the retry ───────────────────────
+test('a mid-copy failure discards the partial target and lets the same folder be retried', () => {
+  const { root, userData, target } = fixture();
+  const realCopy = fs.copyFileSync;
+  try {
+    writeStore(userData, [{ id: 'a', cleaned: 'source record' }]);
+    writeLedger(userData, [{ ts: 1, id: 'a', outcome: 'pasted' }]);
+    const storage = createStorage({ userDataDir: userData });
+
+    // Simulate a copy that dies after writing part of the destination:
+    // full disk, dropped share, or an antivirus lock.
+    fs.copyFileSync = (from, to) => {
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.writeFileSync(to, '{"history": [');
+      throw new Error('simulated mid-copy failure');
+    };
+    let failed;
+    try {
+      failed = storage.moveTo(target);
+    } finally {
+      fs.copyFileSync = realCopy;
+    }
+
+    assert.equal(failed.moved, false);
+    assert.equal(storage.readPointer().move, null);
+    assert.equal(
+      fs.existsSync(path.join(target, 'dictata.json')),
+      false,
+      'the partial file this call wrote must be discarded',
+    );
+
+    // The folder must not be refused forever by the "already contains a
+    // record" guard: the same folder is retryable.
+    const retry = storage.moveTo(target);
+    assert.equal(retry.moved, true, retry.message);
+    assert.ok(fs.existsSync(path.join(target, 'dictata.json')));
+  } finally {
+    fs.copyFileSync = realCopy;
+    removeTree(root);
+  }
+});
+
+test('a cleanup that cannot remove the partial copy keeps the journal for a retry', () => {
+  const { root, userData, target } = fixture();
+  const realRm = fs.rmSync;
+  try {
+    writeStore(userData, [{ id: 'a', cleaned: 'source record' }]);
+    const partial = path.join(target, 'dictata.json');
+    fs.writeFileSync(partial, '{"history": [');
+    writePointer(userData, {
+      version: 1,
+      dir: userData,
+      pendingDelete: [],
+      move: { from: userData, to: target, bytes: 99999, historyCount: 1, ledgerLines: 0 },
+    });
+
+    // The share is offline: removing the partial file fails.
+    fs.rmSync = (file, opts) => {
+      if (path.resolve(String(file)) === path.resolve(partial)) throw new Error('share offline');
+      return realRm(file, opts);
+    };
+    let storage;
+    try {
+      storage = createStorage({ userDataDir: userData });
+      assert.ok(samePath(storage.resolveStoreDir(), userData));
+    } finally {
+      fs.rmSync = realRm;
+    }
+
+    assert.ok(fs.existsSync(partial), 'the debris is still there');
+    assert.notEqual(storage.readPointer().move, null, 'the journal is kept so the next launch retries');
+  } finally {
+    fs.rmSync = realRm;
+    removeTree(root);
+  }
+});
+
 test('a pendingDelete whose files are already gone does not throw and is cleared', () => {
   const { root, userData } = fixture();
   try {
