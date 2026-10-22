@@ -759,21 +759,21 @@ function splitExpired(history, cutoff) {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **What does "export" mean for the audit ledger when there is no ledger yet?** The ledger is new in this phase, so on first launch after upgrade it is empty while history has rows. 
    - What we know: D-12 says the ledger survives deletion and is metadata-only. 
    - Unclear: whether the four export buttons should backfill ledger rows from existing history (retroactive audit trail) or start from the upgrade moment.
-   - Recommendation: start empty and say "audit records begin when this version is installed" in the panel. Backfilling would fabricate timestamps for events that were never audited.
+   - **RESOLVED (adopted):** start empty; state "audit records begin when this version is installed" in the panel. No backfill, because it would fabricate timestamps for events that were never audited. Landed in `01-02-PLAN.md` / `01-03-PLAN.md`.
 
 2. **Should retention apply to `store.events`?** 
    - What we know: error/info events accumulate to 500 and drive the dashboard's "failed attempts". 
    - Unclear: whether D-02's retention window is about dictations only. 
-   - Recommendation: apply the same cutoff to events (they are equally personal — they can quote an error message containing text), but keep the audit ledger exempt.
+   - **RESOLVED (adopted):** apply the same cutoff to events (they are equally personal — an error message can quote dictated text), but keep the audit ledger exempt per D-12. Landed in `01-02-PLAN.md`.
 
 3. **What happens to a relocated store on uninstall?** 
    - NSIS removes `userData` by default; a store moved to `D:\` will survive uninstall. 
-   - Recommendation: document in README; do not attempt deletion on uninstall (dangerous and out of scope).
+   - **RESOLVED (adopted):** accept the survival, document it in the Settings "Privacy & Data" help text only; no uninstall-time deletion (dangerous and out of scope for Phase 1).
 
 ---
 
