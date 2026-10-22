@@ -44,6 +44,40 @@ function average(list) {
 }
 
 /**
+ * The totals that belong in the stored record.
+ *
+ * This is the single source of truth for `store.stats`: deleting or expiring a
+ * row recomputes from the survivors instead of subtracting, so the counter can
+ * never drift away from the history it is supposed to describe. It uses the
+ * same word reduction as `summarize()` so the stored record and the page agree.
+ *
+ * @param {object[]} [history]  newest first
+ * @returns {{words: number, sessions: number, msSpoken: number}}
+ */
+function computeStats(history = []) {
+  const entries = history.filter(Boolean);
+  const words = entries.reduce(
+    (n, h) => n + (Number.isFinite(h.words) ? h.words : wordCount(h.cleaned || h.raw)),
+    0,
+  );
+  const msSpoken = entries.reduce((n, h) => n + (h.durationMs || 0), 0);
+  return { words, sessions: entries.length, msSpoken };
+}
+
+/**
+ * The text the paste-last hotkey may replay. Only a row that still exists in
+ * the history can supply it, so a deleted transcript is never re-pasted.
+ *
+ * @param {object[]} [history]  newest first
+ * @returns {{cleaned: string, raw: string}}
+ */
+function lastTarget(history = []) {
+  const newest = history.filter(Boolean)[0];
+  if (!newest) return { cleaned: '', raw: '' };
+  return { cleaned: newest.cleaned || '', raw: newest.raw || '' };
+}
+
+/**
  * Build everything the page needs.
  *
  * @param {object} input
@@ -136,4 +170,12 @@ function summarize({ history = [], events = [], stats = {}, fallbackModel = null
   };
 }
 
-module.exports = { summarize, wordCount, normalizeError, startOfDay, isoDate };
+module.exports = {
+  summarize,
+  computeStats,
+  lastTarget,
+  wordCount,
+  normalizeError,
+  startOfDay,
+  isoDate,
+};

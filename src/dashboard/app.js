@@ -340,6 +340,14 @@ for (const tab of $$('.tab')) {
   tab.addEventListener('click', () => setTab(tab.dataset.tab));
 }
 
+// Rows are rebuilt on every render, so deletion is delegated from the mount.
+$('#history').addEventListener('click', (event) => {
+  const btn = event.target.closest('.rec-del');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (id) deleteRow(id);
+});
+
 // ── Rendering ────────────────────────────────────────────────────────────────
 
 function renderAll() {
@@ -399,6 +407,38 @@ function dailyEntries(entries) {
   return groups;
 }
 
+/**
+ * The trash control. It carries the row id in both directions — the history
+ * UUID for a dictation, the bus id for a failed attempt — and the server
+ * accepts either.
+ */
+function deleteButton(id) {
+  return `<button class="rec-del" type="button" data-id="${esc(id)}" aria-label="Delete this dictation">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/>
+      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>
+    </svg>
+  </button>`;
+}
+
+/** Ask the app to delete one row, then re-render from the resulting state. */
+async function deleteRow(id) {
+  try {
+    const res = await fetch(`/api/history/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok && res.status !== 404) return false;
+    // Optimistic paint; loadState() is the authoritative answer.
+    state.history = state.history.filter((h) => h.id !== id);
+    state.events = state.events.filter((e) => e.id !== id);
+    renderHistory();
+    await loadState();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function renderHistory() {
   const host = $('#history');
   const entries = timeline();
@@ -431,6 +471,7 @@ function renderHistory() {
             </svg>
             <span>${esc(problemLabel(e.message))}</span>
           </div>
+          ${deleteButton(e.id)}
         </div>`;
       }
 
@@ -448,6 +489,7 @@ function renderHistory() {
           <p class="rec-text">${esc(e.text || e.cleaned || '')}</p>
           ${chips.length ? `<div class="rec-meta">${chips.join('')}</div>` : ''}
         </div>
+        ${deleteButton(e.id)}
       </div>`;
     }).join('');
 

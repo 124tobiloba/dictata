@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { summarize, wordCount, normalizeError } = require('../src/main/analytics');
+const { summarize, computeStats, wordCount, normalizeError } = require('../src/main/analytics');
 
 const HOUR = 3600000;
 const DAY = 86400000;
@@ -45,6 +45,26 @@ test('computes words per minute', () => {
     history: [entry({ cleaned: 'a b c d e f g h i j', durationMs: 30000 })],
   });
   assert.equal(s.totals.wpm, 20);
+});
+
+test('computeStats agrees with the summary totals', () => {
+  const history = [
+    entry({ cleaned: 'one two three' }),
+    entry({ cleaned: 'four five', durationMs: 10000, words: 2 }),
+    entry({ cleaned: '', raw: 'six seven eight nine', durationMs: 1000 }),
+  ];
+  const stats = computeStats(history);
+
+  // D-06: the stored record must equal the words the page shows.
+  assert.equal(stats.words, summarize({ history }).totals.words);
+  assert.equal(stats.words, 9);
+  assert.equal(stats.sessions, 3);
+  assert.equal(stats.msSpoken, 16000);
+});
+
+test('computeStats is empty and safe with no history', () => {
+  assert.deepEqual(computeStats(), { words: 0, sessions: 0, msSpoken: 0 });
+  assert.deepEqual(computeStats([null, undefined]), { words: 0, sessions: 0, msSpoken: 0 });
 });
 
 test('counts errors and the error rate', () => {

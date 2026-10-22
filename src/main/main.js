@@ -25,7 +25,7 @@ const { pasteText } = require('./paste');
 const { winHelper } = require('./winhelper');
 const { EventBus } = require('./events');
 const { DashboardServer } = require('./dashboard');
-const { wordCount } = require('./analytics');
+const { wordCount, lastTarget } = require('./analytics');
 
 const IS_DEV = process.argv.includes('--dev');
 const getApiKey = () => (store.settings.apiKey || '').trim() || process.env.GEMINI_API_KEY || '';
@@ -87,6 +87,8 @@ const dashboard = new DashboardServer({
   port: store.settings.dashboardPort,
   // Stable across restarts, so a bookmarked dashboard URL keeps working.
   token: store.getOrCreateToken(),
+  // Every surface deletes through the same main-process functions.
+  onPurge: purgeEntry,
 });
 
 // The bus carries a little app state so the dashboard can render it.
@@ -566,6 +568,36 @@ function notifyHistory() {
   }
 }
 
+// ── Deleting the record ───────────────────────────────────────────────────────
+// One mutation path for every destructive action. The dashboard routes and the
+// History-window IPC both land here, so store, disk, bus, stats, tray and the
+// History window cannot disagree about what still exists.
+
+/** Point the paste-last target at a row that still exists. */
+function rederiveLast() {
+  const { cleaned, raw } = lastTarget(store.snapshot().history);
+  lastCleaned = cleaned;
+  lastRaw = raw;
+}
+
+/**
+ * Delete one dictation or failed attempt and purge it from every surface.
+ *
+ * @param {string} id
+ * @returns {number}  how many rows were removed
+ */
+function purgeEntry(id) {
+  const { removed, wasLast, ids } = store.purgeEntry(id);
+  // The live bus feeds /api/state and SSE — a row that survives there would
+  // reappear on the next snapshot.
+  bus.forgetMany(ids);
+  if (wasLast) rederiveLast();
+  notifyHistory();
+  updateTrayMenu();
+  if (removed) bus.publish('info', { message: 'Dictation deleted', kind: 'history' });
+  return removed;
+}
+
 // ── IPC from renderers ────────────────────────────────────────────────────────
 function setupIPC() {
   // Settings
@@ -615,7 +647,7 @@ function setupIPC() {
   });
 
   // History
-  ipcMain.handle('vf:delete-history', (_e, id) => store.deleteHistory(id));
+  ipcMain.handle('vf:delete-history', (_e, id) => purgeEntry(id));
   ipcMain.handle('vf:clear-history', () => store.clearHistory());
   ipcMain.handle('vf:paste-entry', (_e, text) => pasteInto(text));
 }

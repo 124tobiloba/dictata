@@ -64,6 +64,22 @@ class EventBus extends EventEmitter {
     return this.buffer.filter((e) => PERSISTED_TYPES.has(e.type));
   }
 
+  /** Drop one event — a deleted dictation must not come back over SSE. */
+  forget(id) {
+    this.buffer = this.buffer.filter((e) => e.id !== id);
+  }
+
+  /** Drop several events at once (a dictation id and its error rows). */
+  forgetMany(ids) {
+    const drop = new Set(ids || []);
+    this.buffer = this.buffer.filter((e) => !drop.has(e.id));
+  }
+
+  /** Drop every buffered event, keeping the app-state properties intact. */
+  forgetAll() {
+    this.buffer = [];
+  }
+
   clear() {
     this.buffer = [];
   }

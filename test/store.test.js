@@ -1,7 +1,47 @@
-// Unit tests for the settings merge logic.
+// Unit tests for the settings merge logic and the record's mutation path.
 const test = require('node:test');
 const assert = require('node:assert');
-const { mergeDefaults, DEFAULTS } = require('../src/main/store');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const {
+  mergeDefaults,
+  DEFAULTS,
+  Store,
+  decryptSecret,
+  purgeEntryData,
+} = require('../src/main/store');
+
+/** A store document shaped like the one on disk. */
+function doc(over = {}) {
+  return {
+    settings: { model: 'gemini-2.5-flash', apiKey: '' },
+    dictionary: [{ term: 'npm' }],
+    replacements: [{ from: 'a', to: 'b' }],
+    dashboardToken: 'token-123',
+    history: [
+      { id: 'b', cleaned: 'b b', raw: 'b b', words: 2, durationMs: 2000, at: 2 },
+      { id: 'a', cleaned: 'a', raw: 'a', words: 1, durationMs: 1000, at: 1 },
+    ],
+    events: [
+      { id: 'mhqk3z1a-0', type: 'error', message: 'Audio is silent', ts: 3 },
+      { id: 'b', type: 'dictation', ts: 2 },
+    ],
+    stats: { words: 99, sessions: 9, msSpoken: 99999 },
+    ...over,
+  };
+}
+
+/** A throwaway store directory, removed whatever the test does. */
+function withTempDir(fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dictata-store-'));
+  try {
+    return fn(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 test('an empty file yields the defaults', () => {
   const s = mergeDefaults({});
@@ -51,4 +91,81 @@ test('the dashboard token survives a restart', () => {
   const stored = mergeDefaults({ dashboardToken: 'abc123' });
   assert.equal(stored.dashboardToken, 'abc123');
   assert.equal(mergeDefaults({}).dashboardToken, '');
+});
+
+test('purging one id removes the dictation row and its persisted event', () => {
+  const data = doc();
+  const result = purgeEntryData(data, 'b');
+
+  assert.deepEqual(result, { removed: 2, wasLast: true, ids: ['b'] });
+  assert.deepEqual(data.history.map((h) => h.id), ['a']);
+  assert.deepEqual(data.events.map((e) => e.id), ['mhqk3z1a-0']);
+
+  // Stats describe the survivors, never the old counter minus a guess.
+  assert.deepEqual(data.stats, { words: 1, sessions: 1, msSpoken: 1000 });
+});
+
+test('purging a failed attempt by its bus id leaves the history alone', () => {
+  const data = doc();
+  const result = purgeEntryData(data, 'mhqk3z1a-0');
+
+  assert.deepEqual(result, { removed: 1, wasLast: false, ids: ['mhqk3z1a-0'] });
+  assert.deepEqual(data.history.map((h) => h.id), ['b', 'a']);
+  assert.deepEqual(data.events.map((e) => e.id), ['b']);
+  assert.deepEqual(data.stats, { words: 3, sessions: 2, msSpoken: 3000 });
+});
+
+test('purging never touches settings, the token, the dictionary or replacements', () => {
+  const data = doc();
+  purgeEntryData(data, 'b');
+  assert.deepEqual(data.settings, { model: 'gemini-2.5-flash', apiKey: '' });
+  assert.equal(data.dashboardToken, 'token-123');
+  assert.deepEqual(data.dictionary, [{ term: 'npm' }]);
+  assert.deepEqual(data.replacements, [{ from: 'a', to: 'b' }]);
+});
+
+test('an unknown id removes nothing and reports nothing', () => {
+  const data = doc();
+  const result = purgeEntryData(data, 'not-here');
+  assert.equal(result.removed, 0);
+  assert.equal(result.wasLast, false);
+  assert.deepEqual(result.ids, []);
+  assert.equal(data.history.length, 2);
+});
+
+test('a purge is on disk before the call returns', () => {
+  withTempDir((dir) => {
+    const store = new Store({ dir });
+    const row = {
+      id: 'e2e-row',
+      raw: 'hello there',
+      cleaned: 'Hello there',
+      durationMs: 1200,
+      words: 2,
+      at: Date.now(),
+    };
+    store.addHistory(row);
+    assert.equal(store.purgeEntry(row.id).removed, 1);
+
+    // Read synchronously — no timer wait. A quit here must not resurrect it.
+    const onDisk = fs.readFileSync(path.join(dir, 'dictata.json'), 'utf8');
+    assert.equal(onDisk.includes('e2e-row'), false);
+
+    // A fresh Store on the same file agrees with the deleted state.
+    const reopened = new Store({ dir });
+    assert.deepEqual(reopened.snapshot().history, []);
+    assert.deepEqual(reopened.snapshot().stats, { words: 0, sessions: 0, msSpoken: 0 });
+  });
+});
+
+test('flushing twice leaves the API key readable', () => {
+  withTempDir((dir) => {
+    const store = new Store({ dir });
+    store.updateSettings({ apiKey: 'test-key-123' });
+    store.flush();
+    store.flush();
+
+    const reopened = new Store({ dir });
+    assert.equal(decryptSecret(reopened.data.settings.apiKey), 'test-key-123');
+  });
 });

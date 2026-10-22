@@ -7,6 +7,8 @@
  *   GET /                     the page
  *   GET /api/state            snapshot: app state, analytics, history, events
  *   GET /api/history          the full history
+ *   DELETE /api/history/:id   delete one dictation or failed attempt
+ *   DELETE /api/history       delete every dictation and failed attempt
  *   GET /api/events           SSE stream of live events
  *
  * It binds to 127.0.0.1 only and requires a token on every API call, so
@@ -35,6 +37,28 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
+
+const HISTORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EVENT_ID = /^[0-9a-z]+-[0-9a-z]+$/i;
+
+/**
+ * A traversal gate for a delete target, never a kind gate.
+ *
+ * The dashboard renders two id shapes: a history UUID and the event bus id
+ * (`${Date.now().toString(36)}-${counter}`, e.g. `mhqk3z1a-0`). Anything
+ * carrying a separator, an escape, a quote or a dot is rejected before it can
+ * reach a filesystem-adjacent code path. Whether the id names a real row is
+ * decided by the purge itself: an unknown id deletes nothing and becomes 404.
+ *
+ * @param {string} id
+ * @returns {boolean}
+ */
+function validRowId(id) {
+  if (typeof id !== 'string' || !id || id.length > 64) return false;
+  if (/[/%\\\s'"]/.test(id)) return false;
+  if (id.includes('.')) return false;
+  return HISTORY_ID.test(id) || EVENT_ID.test(id);
+}
 
 /**
  * One ordered stream out of three sources:
@@ -72,9 +96,12 @@ function collectEvents(history = [], persisted = [], live = []) {
 class DashboardServer {
   /**
    * @param {object} opts
-   * @param {object} opts.store  the Store instance
-   * @param {object} opts.bus    the EventBus
+   * @param {object} opts.store       the Store instance
+   * @param {object} opts.bus         the EventBus
    * @param {number} [opts.port]
+   * @param {string} [opts.token]
+   * @param {Function} [opts.onPurge]   (id) → removed count
+   * @param {Function} [opts.onClearAll] () → removed count
    */
   constructor(opts = {}) {
     this.store = opts.store;
@@ -83,6 +110,9 @@ class DashboardServer {
     // A stable token keeps bookmarked dashboard links working across
     // restarts. Fall back to a random one if none was given.
     this.token = opts.token || crypto.randomBytes(16).toString('hex');
+    // Deletion lives in the main process; the server only injects the call.
+    this.onPurge = opts.onPurge || (() => 0);
+    this.onClearAll = opts.onClearAll || (() => 0);
     this.server = null;
     this.clients = new Set();
     this._onEvent = (event) => this._broadcast(event);
@@ -177,7 +207,18 @@ class DashboardServer {
       return this._json(res, 200, this._state());
     }
 
-    if (pathname === '/api/history') {
+    if (req.method === 'DELETE' && pathname.startsWith('/api/history/')) {
+      if (!this._authorised(url)) return this._json(res, 401, { error: 'Bad token' });
+      // Take the raw segment — never decode it. Decoding first would turn an
+      // encoded traversal into a path.
+      const id = pathname.slice('/api/history/'.length);
+      if (!validRowId(id)) return this._json(res, 400, { error: 'Bad id' });
+      const removed = await this.onPurge(id);
+      if (!removed) return this._json(res, 404, { error: 'Not found' });
+      return this._json(res, 200, { removed });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/history') {
       if (!this._authorised(url)) return this._json(res, 401, { error: 'Bad token' });
       return this._json(res, 200, { history: this.store.snapshot().history });
     }

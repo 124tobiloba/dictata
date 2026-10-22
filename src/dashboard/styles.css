@@ -448,7 +448,7 @@ button { font: inherit; color: inherit; }
 
 .rec {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr) 32px;
   gap: 18px;
   padding: 18px 22px;
   border-top: 1px solid var(--line-soft);
@@ -462,6 +462,19 @@ button { font: inherit; color: inherit; }
 }
 .rec-text { font-size: 15px; line-height: 1.65; color: var(--ink); white-space: pre-wrap; }
 .rec-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+/* The row's delete control. Task 2 makes it invisible until the row is hovered
+   or focused; it is always in the tab order, so it is never display:none. */
+.rec-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rec-del svg { width: 15px; height: 15px; }
+.rec-del:hover { color: var(--orange); }
 
 /* A failed attempt keeps its place in the timeline, like "Audio is silent". */
 .rec.is-problem { background: var(--page-2); }

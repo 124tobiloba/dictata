@@ -8,6 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const { computeStats } = require('./analytics');
+
 const DEFAULTS = {
   settings: {
     // Shortcut chords use Electron accelerator key names (see hotkeys.js).
@@ -92,17 +94,82 @@ function mergeDefaults(raw) {
   };
 }
 
+/**
+ * Remove one id from both stored collections. Pure — unit-tested.
+ *
+ * `removed` counts rows across both arrays because a dictation appears in
+ * `history` and (via the bus) in `events`, while a failed attempt only ever
+ * exists as an event. Stats are recomputed from the survivors, never
+ * subtracted, so the cap and a delete cannot make the totals drift.
+ *
+ * @param {object} data  a store document
+ * @param {string} id
+ * @returns {{removed: number, wasLast: boolean, ids: string[]}}
+ */
+function purgeEntryData(data, id) {
+  const history = Array.isArray(data.history) ? data.history : [];
+  const events = Array.isArray(data.events) ? data.events : [];
+  const wasLast = history.length > 0 && history[0]?.id === id;
+
+  const ids = [];
+  const remainingHistory = history.filter((h) => {
+    if (!h || h.id !== id) return true;
+    ids.push(h.id);
+    return false;
+  });
+  const remainingEvents = events.filter((e) => {
+    if (!e || e.id !== id) return true;
+    if (!ids.includes(e.id)) ids.push(e.id);
+    return false;
+  });
+
+  data.history = remainingHistory;
+  data.events = remainingEvents;
+  data.stats = computeStats(remainingHistory);
+
+  return { removed: (history.length - remainingHistory.length) + (events.length - remainingEvents.length), wasLast, ids };
+}
+
+/**
+ * Empty the transcript record only. Never rebuilds the document from the
+ * defaults: settings, the API key, dictionary, replacements and the dashboard
+ * token must survive a clear. Pure — unit-tested.
+ *
+ * @param {object} data  a store document
+ * @returns {number}  how many history rows were removed
+ */
+function clearAllData(data) {
+  const removed = Array.isArray(data.history) ? data.history.length : 0;
+  data.history = [];
+  data.events = [];
+  data.stats = { words: 0, sessions: 0, msSpoken: 0 };
+  return removed;
+}
+
 class Store {
-  constructor() {
-    this.file = path.join(app.getPath('userData'), 'dictata.json');
-    // Defensive: adopt the pre-rename store if the migration did not run.
-    const legacy = path.join(app.getPath('userData'), 'voice-flow.json');
+  /**
+   * @param {object} [opts]
+   * @param {string} [opts.dir]          directory holding dictata.json
+   * @param {string} [opts.file]         full path override (tests)
+   * @param {string} [opts.userDataDir]  where the pre-rename file lives
+   */
+  constructor(opts = {}) {
+    this.dir = opts.dir || app.getPath('userData');
+    this.file = opts.file || path.join(this.dir, 'dictata.json');
+    // The legacy adoption is anchored at userData, never in a moved
+    // directory. A test store passes `dir`, so there is no legacy file to
+    // adopt and — importantly — no Electron `app` to ask.
+    const legacyDir = opts.userDataDir || (opts.dir ? null : this.dir);
     try {
-      if (!fs.existsSync(this.file) && fs.existsSync(legacy)) fs.copyFileSync(legacy, this.file);
+      if (legacyDir) {
+        const legacy = path.join(legacyDir, 'voice-flow.json');
+        if (!fs.existsSync(this.file) && fs.existsSync(legacy)) fs.copyFileSync(legacy, this.file);
+      }
     } catch { /* start fresh rather than crash */ }
     this.data = this._load();
     this._decrypted = false;
     this._writeTimer = null;
+    this._recomputeStats();
   }
 
   _load() {
@@ -124,20 +191,42 @@ class Store {
   }
 
   _save() {
-    this._ensureDecrypted();
     clearTimeout(this._writeTimer);
-    this._writeTimer = setTimeout(() => {
-      try {
-        fs.mkdirSync(path.dirname(this.file), { recursive: true });
-        const settings = { ...this.data.settings };
-        settings.apiKey = encryptSecret(settings.apiKey || '');
-        const tmp = `${this.file}.tmp`;
-        fs.writeFileSync(tmp, JSON.stringify({ ...this.data, settings }, null, 2));
-        fs.renameSync(tmp, this.file);
-      } catch (e) {
-        console.error('[store] save failed:', e.message);
-      }
-    }, 150);
+    this._writeTimer = setTimeout(() => this._writeNow(), 150);
+  }
+
+  /**
+   * Write the record now. Destructive mutations call this through `flush()`
+   * so a quit inside the save debounce cannot bring a deleted row back.
+   *
+   * `_ensureDecrypted()` runs first because a flush can be the first thing
+   * that touches the store after construction — encrypting an already
+   * encrypted key would make it undecryptable on the next launch.
+   */
+  _writeNow() {
+    this._ensureDecrypted();
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
+      const settings = { ...this.data.settings };
+      settings.apiKey = encryptSecret(settings.apiKey || '');
+      const tmp = `${this.file}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ ...this.data, settings }, null, 2));
+      fs.renameSync(tmp, this.file);
+    } catch (e) {
+      console.error('[store] save failed:', e.message);
+    }
+  }
+
+  /** Cancel the pending debounce and write the file immediately. */
+  flush() {
+    clearTimeout(this._writeTimer);
+    this._writeTimer = null;
+    this._writeNow();
+  }
+
+  /** Stats always describe the rows that are still in the record. */
+  _recomputeStats() {
+    this.data.stats = computeStats(this.data.history || []);
   }
 
   get settings() {
@@ -181,19 +270,34 @@ class Store {
   addHistory(entry) {
     this.data.history.unshift(entry);
     if (this.data.history.length > HISTORY_LIMIT) this.data.history.length = HISTORY_LIMIT;
-    const words = (entry.cleaned || '').trim().split(/\s+/).filter(Boolean).length;
-    this.data.stats.words += words;
-    this.data.stats.sessions += 1;
-    this.data.stats.msSpoken += entry.durationMs || 0;
+    this._recomputeStats();
     this._save();
   }
 
-  deleteHistory(id) {
-    this.data.history = this.data.history.filter((h) => h.id !== id);
-    this._save();
+  /**
+   * Delete one dictation or failed attempt. Writes the file before returning
+   * so a quit straight after the click cannot resurrect the row.
+   *
+   * @param {string} id
+   * @returns {{removed: number, wasLast: boolean, ids: string[]}}
+   */
+  purgeEntry(id) {
+    const result = purgeEntryData(this.data, id);
+    this.flush();
+    return result;
   }
 
-  clearHistory() { this.data.history = []; this._save(); }
+  /**
+   * Delete every dictation and failed attempt, keeping settings and the
+   * dashboard token. Writes the file before returning.
+   *
+   * @returns {number}  how many history rows were removed
+   */
+  clearAll() {
+    const removed = clearAllData(this.data);
+    this.flush();
+    return removed;
+  }
 
   snapshot() {
     this._ensureDecrypted();
@@ -201,4 +305,12 @@ class Store {
   }
 }
 
-module.exports = { Store, DEFAULTS, mergeDefaults, encryptSecret, decryptSecret };
+module.exports = {
+  Store,
+  DEFAULTS,
+  mergeDefaults,
+  encryptSecret,
+  decryptSecret,
+  purgeEntryData,
+  clearAllData,
+};

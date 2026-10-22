@@ -20,9 +20,9 @@ function fakeStore(history = [], events = []) {
   };
 }
 
-async function withServer(fn) {
+async function withServer(fn, opts = {}) {
   const bus = new EventBus();
-  const server = new DashboardServer({ store: fakeStore(), bus, port: 0 });
+  const server = new DashboardServer({ store: fakeStore(), bus, port: 0, ...opts });
   await server.start();
   try {
     await fn(server, bus);
@@ -30,6 +30,8 @@ async function withServer(fn) {
     server.stop();
   }
 }
+
+const HISTORY_UUID = '8f0d6c1e-1111-4222-8333-444455556666';
 
 test('serves the dashboard page', async () => {
   await withServer(async (server) => {
@@ -204,4 +206,83 @@ test('the state payload carries the real keyboard shortcuts', async () => {
   } finally {
     server.stop();
   }
+});
+
+// ── Delete routes ────────────────────────────────────────────────────────────
+// Order matters: host → method+path → token → id validation → purge.
+
+test('a delete without a token never reaches the purge', async () => {
+  const seen = [];
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/history/${HISTORY_UUID}`, { method: 'DELETE' });
+    assert.equal(res.status, 401);
+  }, { onPurge: (id) => { seen.push(id); return 1; } });
+  assert.deepEqual(seen, []);
+});
+
+test('a delete with a wrong token never reaches the purge', async () => {
+  const seen = [];
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/history/${HISTORY_UUID}?token=nope`, { method: 'DELETE' });
+    assert.equal(res.status, 401);
+  }, { onPurge: (id) => { seen.push(id); return 1; } });
+  assert.deepEqual(seen, []);
+});
+
+test('a delete accepts a history UUID and hands it over unchanged', async () => {
+  const seen = [];
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/history/${HISTORY_UUID}?token=${server.token}`, {
+      method: 'DELETE',
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { removed: 1 });
+  }, { onPurge: (id) => { seen.push(id); return 1; } });
+  assert.deepEqual(seen, [HISTORY_UUID]);
+});
+
+test('a delete accepts a failed-attempt bus id', async () => {
+  const seen = [];
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/history/mhqk3z1a-0?token=${server.token}`, {
+      method: 'DELETE',
+    });
+    assert.equal(res.status, 200);
+  }, { onPurge: (id) => { seen.push(id); return 1; } });
+  assert.deepEqual(seen, ['mhqk3z1a-0']);
+});
+
+test('a delete for an id that matches nothing is a 404', async () => {
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/history/${HISTORY_UUID}?token=${server.token}`, {
+      method: 'DELETE',
+    });
+    assert.equal(res.status, 404);
+  }, { onPurge: () => 0 });
+});
+
+test('a malformed or traversal-shaped id is refused with a 400', async () => {
+  const seen = [];
+  await withServer(async (server) => {
+    for (const bad of ['a-b-c', '..%2F..%2Fx']) {
+      const res = await fetch(`${server.baseUrl}/api/history/${bad}?token=${server.token}`, {
+        method: 'DELETE',
+      });
+      assert.equal(res.status, 400, `${bad} must be rejected`);
+    }
+  }, { onPurge: (id) => { seen.push(id); return 1; } });
+  assert.deepEqual(seen, []);
+});
+
+test('a GET is never served as a delete', async () => {
+  const seen = [];
+  await withServer(async (server) => {
+    const list = await fetch(`${server.baseUrl}/api/history?token=${server.token}`);
+    assert.equal(list.status, 200, 'the read route still works');
+    assert.ok(Array.isArray((await list.json()).history));
+
+    const one = await fetch(`${server.baseUrl}/api/history/${HISTORY_UUID}?token=${server.token}`);
+    assert.equal(one.status, 404, 'a GET falls through to the static 404');
+  }, { onPurge: (id) => { seen.push(id); return 1; } });
+  assert.deepEqual(seen, []);
 });
