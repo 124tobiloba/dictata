@@ -213,6 +213,10 @@ function loadPrivacy() {
     loadDataInfo();
   });
   document.getElementById('clearAudit')?.addEventListener('click', clearAuditLog);
+  document.getElementById('exportHistoryJson')?.addEventListener('click', () => runExport('history', 'json'));
+  document.getElementById('exportHistoryCsv')?.addEventListener('click', () => runExport('history', 'csv'));
+  document.getElementById('exportAuditJson')?.addEventListener('click', () => runExport('audit', 'json'));
+  document.getElementById('exportAuditCsv')?.addEventListener('click', () => runExport('audit', 'csv'));
   loadDataInfo();
 }
 
@@ -242,6 +246,24 @@ async function clearAuditLog() {
   if (!confirm(`Delete ${label}? Your dictations are not touched.`)) return;
   await window.vf.clearAudit();
   await loadDataInfo();
+}
+
+/**
+ * Export one record through the native save dialog. The window picks only the
+ * format; the main process asks for the path and writes the file, so the page
+ * never chooses a destination.
+ */
+async function runExport(kind, format) {
+  const status = document.getElementById('exportStatus');
+  if (status) status.textContent = 'Preparing export…';
+  try {
+    const result = kind === 'audit'
+      ? await window.vf.exportAudit(format)
+      : await window.vf.exportHistory(format);
+    if (status) status.textContent = result?.message || (result?.saved ? 'Export saved.' : 'Export cancelled.');
+  } catch {
+    if (status) status.textContent = 'Export failed — try again.';
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

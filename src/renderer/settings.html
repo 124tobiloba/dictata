@@ -218,6 +218,8 @@
     .btn.secondary { background: var(--surface2); color: var(--text); }
     .btn.secondary:hover { background: var(--surface); border: 1px solid var(--border); }
 
+    .btn-row { display: flex; gap: 8px; }
+
     /* Stats */
     .stat-grid {
       display: grid;
@@ -507,6 +509,31 @@
           </div>
           <button class="btn secondary" id="clearAudit">Clear audit log</button>
         </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Export</div>
+        <div class="row">
+          <div>
+            <label>Dictation history</label>
+            <div class="hint">Every transcript and its metadata, as JSON or as a CSV that opens in Excel.</div>
+          </div>
+          <div class="btn-row">
+            <button class="btn secondary" id="exportHistoryJson">JSON</button>
+            <button class="btn secondary" id="exportHistoryCsv">CSV</button>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Audit log</label>
+            <div class="hint">Metadata only — the audit export never contains transcript text.</div>
+          </div>
+          <div class="btn-row">
+            <button class="btn secondary" id="exportAuditJson">JSON</button>
+            <button class="btn secondary" id="exportAuditCsv">CSV</button>
+          </div>
+        </div>
+        <div class="hint" id="exportStatus"></div>
       </div>
     </div>
 

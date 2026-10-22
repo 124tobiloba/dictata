@@ -14,4 +14,6 @@ contextBridge.exposeInMainWorld('vf', {
   setRetention: (days) => ipcRenderer.invoke('vf:set-retention', days),
   dataInfo: () => ipcRenderer.invoke('vf:data-info'),
   clearAudit: () => ipcRenderer.invoke('vf:clear-audit'),
+  exportHistory: (format) => ipcRenderer.invoke('vf:export-history', format),
+  exportAudit: (format) => ipcRenderer.invoke('vf:export-audit', format),
 });

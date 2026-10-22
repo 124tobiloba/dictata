@@ -11,7 +11,7 @@
  */
 
 require('dotenv').config();
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, session, dialog } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -28,6 +28,7 @@ const { DashboardServer } = require('./dashboard');
 const { wordCount, lastTarget } = require('./analytics');
 const { normalizeRetentionDays, cutoffFor, splitExpired, splitExpiredEvents } = require('./retention');
 const { createLedger } = require('./ledger');
+const { toCsv, historyRows, auditRows } = require('./exporter');
 
 const IS_DEV = process.argv.includes('--dev');
 const getApiKey = () => (store.settings.apiKey || '').trim() || process.env.GEMINI_API_KEY || '';
@@ -757,6 +758,86 @@ function appendAudit(row) {
   }
 }
 
+// ── Exporting the record ──────────────────────────────────────────────────────
+/**
+ * Ask for a path through the native dialog and write one full export there.
+ *
+ * The renderer only chooses the format. The path comes back from the dialog,
+ * never from the page, so a renderer cannot direct a write at an arbitrary
+ * file. A cancelled dialog writes nothing.
+ *
+ * @param {'history'|'audit'} kind
+ * @param {'json'|'csv'} format
+ * @returns {Promise<{saved: boolean, path?: string, canceled?: boolean, message: string}>}
+ */
+async function exportRecord(kind, format) {
+  if (format !== 'json' && format !== 'csv') {
+    return { saved: false, message: 'Choose JSON or CSV to export.' };
+  }
+
+  const isAudit = kind === 'audit';
+  const date = new Date().toISOString().slice(0, 10);
+  const name = `dictata-${kind}-${date}.${format}`;
+  let defaultPath = name;
+  try {
+    defaultPath = path.join(app.getPath('documents'), name);   // dialog remembers the last folder
+  } catch { /* a missing Documents folder is not a reason to refuse an export */ }
+
+  const filters = format === 'csv'
+    ? [{ name: 'CSV', extensions: ['csv'] }]
+    : [{ name: 'JSON', extensions: ['json'] }];
+
+  try {
+    let count;
+    let data;
+    if (isAudit) {
+      const records = ledger.read();   // export is the one caller allowed to read the whole ledger
+      count = records.length;
+      data = format === 'csv'
+        ? toCsv(auditRows(records))
+        : JSON.stringify({
+          exportedAt: new Date().toISOString(),
+          count,
+          note: 'Audit records begin when this version was installed — earlier dictations are not backfilled.',
+          audit: records,
+        }, null, 2);
+    } else {
+      const history = store.snapshot().history || [];
+      count = history.length;
+      data = format === 'csv'
+        ? toCsv(historyRows(history))
+        : JSON.stringify({ exportedAt: new Date().toISOString(), count, history }, null, 2);
+    }
+
+    const options = {
+      title: isAudit ? 'Export audit log' : 'Export dictation history',
+      defaultPath,
+      filters,
+    };
+    const owner = settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : null;
+    const result = owner
+      ? await dialog.showSaveDialog(owner, options)
+      : await dialog.showSaveDialog(options);
+
+    if (result.canceled || !result.filePath) {
+      return { saved: false, canceled: true, message: 'Export cancelled — nothing was written.' };
+    }
+
+    fs.writeFileSync(result.filePath, data, 'utf8');
+    const noun = isAudit ? 'audit record' : 'dictation';
+    return {
+      saved: true,
+      path: result.filePath,
+      message: `Exported ${count} ${noun}${count === 1 ? '' : 's'} to ${result.filePath}`,
+    };
+  } catch (e) {
+    // A filesystem failure is a message for the person clicking, not a
+    // rejected promise in the renderer.
+    console.warn('[export] failed:', e.message);
+    return { saved: false, message: 'Export failed — check the folder is writable and try again.' };
+  }
+}
+
 // ── IPC from renderers ────────────────────────────────────────────────────────
 function setupIPC() {
   // Settings
@@ -810,6 +891,9 @@ function setupIPC() {
     ledger.clear();
     return { cleared: true };
   });
+  // Exports go through a native save dialog; the renderer only names a format.
+  ipcMain.handle('vf:export-history', (_e, format) => exportRecord('history', format));
+  ipcMain.handle('vf:export-audit', (_e, format) => exportRecord('audit', format));
 
   // External links (e.g. Google AI Studio) open in the real browser
   ipcMain.handle('vf:open-external', (_e, url) => {
