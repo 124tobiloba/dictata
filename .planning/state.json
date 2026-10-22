@@ -1,0 +1,33 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v1.0 — Public Launch",
+  "phases": [
+    {
+      "number": "1",
+      "name": "Data Ownership",
+      "status": "pending"
+    },
+    {
+      "number": "2",
+      "name": "Trusted Distribution",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "Provable Privacy",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Compliance Pack & Public Launch",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 1 of 4 · executing"
+  },
+  "updated_at": "2026-10-22T12:51:21.853Z"
+}
