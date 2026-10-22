@@ -116,3 +116,19 @@ test('the clear-all control names the count before it deletes anything', () => {
   assert.match(js, /Delete all \$\{num\(count\)\} dictation/);
   assert.match(js, /method:\s*'DELETE'/);
 });
+
+test('the dashboard states the retention policy as read-only facts', () => {
+  // D-02: retention, storage and the audit count are facts here; the one
+  // control opens the Settings window, which owns the editable form.
+  assert.match(html, /id="privacyFacts"/);
+  assert.match(html, /id="openSettings"/);
+  assert.match(js, /renderPrivacy/);
+  assert.match(js, /Keep forever/);
+  assert.match(js, /Retention: /);
+  assert.match(js, /Audit records: /);
+  // The path is a filesystem string, so it goes in with textContent.
+  assert.match(js, /pathChip\.textContent = facts\.storeDir/);
+  // A relative URL, a POST, and the token exactly like every other call.
+  assert.match(js, /\/api\/settings\/open\?token=\$\{encodeURIComponent\(token\)\}/);
+  assert.match(js, /method:\s*'POST'/);
+});

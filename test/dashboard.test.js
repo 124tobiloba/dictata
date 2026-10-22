@@ -300,3 +300,76 @@ test('clear-all needs the token and returns the callback count', async () => {
   }, { onClearAll: () => { calls++; return 3; } });
   assert.equal(calls, 1);
 });
+
+// ── Privacy facts and Open Settings (D-02, T-01-06) ──────────────────────────
+// Every state response must carry the facts, and the only dashboard action is
+// opening a window — behind the same host + token gates as every other route.
+
+test('the state payload carries the read-only privacy facts', async () => {
+  const facts = { retentionDays: 90, storeDir: 'C:\\Users\\HP\\AppData\\Roaming\\Dictata', auditCount: 7 };
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/state?token=${server.token}`);
+    const data = await res.json();
+    assert.deepEqual(data.privacy, facts);
+  }, { getPrivacyFacts: () => facts });
+});
+
+test('without an injected source the privacy block is null, never invented', async () => {
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/state?token=${server.token}`);
+    const data = await res.json();
+    assert.equal(data.privacy, null);
+  });
+});
+
+test('opening settings without a token never reaches the callback', async () => {
+  let calls = 0;
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/settings/open`, { method: 'POST' });
+    assert.equal(res.status, 401);
+  }, { onOpenSettings: () => { calls++; } });
+  assert.equal(calls, 0);
+});
+
+test('opening settings with a valid token runs the callback', async () => {
+  let calls = 0;
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/settings/open?token=${server.token}`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true });
+  }, { onOpenSettings: () => { calls++; } });
+  assert.equal(calls, 1);
+});
+
+test('a cross-site POST cannot open settings', async () => {
+  let calls = 0;
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/settings/open?token=${server.token}`, {
+      method: 'POST',
+      headers: { Origin: 'http://evil.example' },
+    });
+    assert.equal(res.status, 403);
+  }, { onOpenSettings: () => { calls++; } });
+  assert.equal(calls, 0);
+});
+
+test('a same-origin POST is allowed through', async () => {
+  let calls = 0;
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/settings/open?token=${server.token}`, {
+      method: 'POST',
+      headers: { Origin: `http://127.0.0.1:${server.port}` },
+    });
+    assert.equal(res.status, 200);
+  }, { onOpenSettings: () => { calls++; } });
+  assert.equal(calls, 1);
+});
+
+test('a GET to the open-settings path never runs the callback', async () => {
+  let calls = 0;
+  await withServer(async (server) => {
+    const res = await fetch(`${server.baseUrl}/api/settings/open?token=${server.token}`);
+    assert.equal(res.status, 404, 'the read method falls through to the static 404');
+  }, { onOpenSettings: () => { calls++; } });
+  assert.equal(calls, 0);
+});

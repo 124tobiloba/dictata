@@ -91,6 +91,10 @@ const dashboard = new DashboardServer({
   // Every surface deletes through the same main-process functions.
   onPurge: purgeEntry,
   onClearAll: clearAll,
+  // Read-only facts (D-02) and the only dashboard action that configures
+  // anything: opening the window that owns the controls.
+  getPrivacyFacts,
+  onOpenSettings: () => createSettingsWindow(),
 });
 
 // The bus carries a little app state so the dashboard can render it.
@@ -691,6 +695,22 @@ function sweepRetention() {
   return removed;
 }
 
+/**
+ * The facts the dashboard may display about the record (D-02).
+ *
+ * Runs inside every /api/state response, so it must stay O(1): the audit count
+ * is a cached number, never a parse of the ledger file.
+ *
+ * @returns {{retentionDays: number, storeDir: string, auditCount: number}}
+ */
+function getPrivacyFacts() {
+  return {
+    retentionDays: store.settings.retentionDays,
+    storeDir: path.dirname(store.file),
+    auditCount: 0,   // replaced with ledger.count() when the audit log lands
+  };
+}
+
 // ── IPC from renderers ────────────────────────────────────────────────────────
 function setupIPC() {
   // Settings
@@ -727,6 +747,17 @@ function setupIPC() {
   ipcMain.handle('vf:test-key', (_e, key) => testKey((key || '').trim() || getApiKey()));
   ipcMain.handle('vf:set-dictionary', (_e, list) => { store.setDictionary(list); });
   ipcMain.handle('vf:set-replacements', (_e, list) => { store.setReplacements(list); });
+
+  // Privacy & Data
+  ipcMain.handle('vf:data-info', () => getPrivacyFacts());
+  ipcMain.handle('vf:set-retention', (_e, days) => {
+    // Clamp before persisting: a hand-edited value or a stray renderer call
+    // must not become an unlisted (and therefore unbounded) window.
+    const retentionDays = normalizeRetentionDays(days);
+    store.updateSettings({ retentionDays });
+    const removed = sweepRetention();
+    return { retentionDays, removed };
+  });
 
   // External links (e.g. Google AI Studio) open in the real browser
   ipcMain.handle('vf:open-external', (_e, url) => {

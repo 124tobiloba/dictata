@@ -9,6 +9,8 @@
  *   GET /api/history          the full history
  *   DELETE /api/history/:id   delete one dictation or failed attempt
  *   DELETE /api/history       delete every dictation and failed attempt
+ *   POST /api/settings/open   open the Settings window (the only mutation-free
+ *                             POST: retention is configured there, not here)
  *   GET /api/events           SSE stream of live events
  *
  * It binds to 127.0.0.1 only and requires a token on every API call, so
@@ -102,6 +104,8 @@ class DashboardServer {
    * @param {string} [opts.token]
    * @param {Function} [opts.onPurge]   (id) → removed count
    * @param {Function} [opts.onClearAll] () → removed count
+   * @param {Function} [opts.getPrivacyFacts] () → { retentionDays, storeDir, auditCount }
+   * @param {Function} [opts.onOpenSettings] () → open the Settings window
    */
   constructor(opts = {}) {
     this.store = opts.store;
@@ -113,6 +117,10 @@ class DashboardServer {
     // Deletion lives in the main process; the server only injects the call.
     this.onPurge = opts.onPurge || (() => 0);
     this.onClearAll = opts.onClearAll || (() => 0);
+    // D-02: the dashboard states the policy, it never edits it. The facts come
+    // from the main process so there is one source of truth for both surfaces.
+    this.getPrivacyFacts = opts.getPrivacyFacts || (() => null);
+    this.onOpenSettings = opts.onOpenSettings || (() => {});
     this.server = null;
     this.clients = new Set();
     this._onEvent = (event) => this._broadcast(event);
@@ -229,6 +237,19 @@ class DashboardServer {
       return this._json(res, 200, { history: this.store.snapshot().history });
     }
 
+    if (req.method === 'POST' && pathname === '/api/settings/open') {
+      if (!this._authorised(url)) return this._json(res, 401, { error: 'Bad token' });
+      // A token in the URL does not prove a browser page is ours: any site can
+      // POST to loopback. A foreign Origin on a state-changing method is
+      // refused, and the callback can only open an existing window — it never
+      // touches the store (T-01-06).
+      if (!this._originAllowed(req.headers.origin)) {
+        return this._json(res, 403, { error: 'Origin not allowed' });
+      }
+      await this.onOpenSettings();
+      return this._json(res, 200, { ok: true });
+    }
+
     // Static files
     const file = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
     const full = path.join(ROOT, file);
@@ -258,6 +279,16 @@ class DashboardServer {
     return !!token && token === this.token;
   }
 
+  /**
+   * A non-GET request must come from our own page. A request with no Origin
+   * header is not a browser cross-site POST (the token already gates it), so
+   * only a present-and-foreign Origin is refused.
+   */
+  _originAllowed(origin) {
+    if (!origin) return true;
+    return [`http://${HOST}:${this.port}`, `http://localhost:${this.port}`].includes(origin);
+  }
+
   _state() {
     const snapshot = this.store.snapshot();
     const live = this.bus.recent(200);
@@ -278,6 +309,8 @@ class DashboardServer {
         stats: snapshot.stats,
         fallbackModel: settings.model || null,
       }),
+      // Read-only facts (D-02). O(1) — the audit count is a cached number.
+      privacy: this.getPrivacyFacts ? this.getPrivacyFacts() : null,
       history: snapshot.history,
       events,
     };

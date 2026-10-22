@@ -20,6 +20,7 @@ const state = {
   analytics: null,
   events: [],
   history: [],
+  privacy: null,
   partial: '',
   connection: 'connecting',   // connecting | live | reconnecting | offline
   level: 0,
@@ -166,6 +167,7 @@ async function loadState() {
     state.analytics = data.analytics || null;
     state.events = data.events || [];
     state.history = data.history || [];
+    state.privacy = data.privacy || null;
     renderAll();
     return true;
   } catch {
@@ -405,6 +407,7 @@ function renderAll() {
   renderSetup();
   renderFeed();
   renderHistory();
+  renderPrivacy();
   renderErrors();
   renderCharts();
 }
@@ -531,6 +534,56 @@ async function clearAllEntries() {
   renderAll();
   await loadState();
 }
+
+/**
+ * D-02: the dashboard states the retention policy, the storage location and the
+ * audit count — it never edits them. The path is inserted with `textContent`
+ * because it is a real filesystem path, not markup.
+ */
+function renderPrivacy() {
+  const host = $('#privacyFacts');
+  if (!host) return;
+
+  const facts = state.privacy;
+  if (!facts) { host.textContent = ''; return; }
+
+  const retention = Number(facts.retentionDays) > 0
+    ? `${Number(facts.retentionDays)} days`
+    : 'Keep forever';
+
+  const chips = [
+    `Retention: ${retention}`,
+    `Audit records: ${num(facts.auditCount)}`,
+  ];
+
+  host.textContent = '';
+  for (const text of chips) {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = text;
+    host.appendChild(chip);
+  }
+  if (facts.storeDir) {
+    const pathChip = document.createElement('span');
+    pathChip.className = 'chip chip-model';
+    pathChip.textContent = facts.storeDir;
+    pathChip.title = facts.storeDir;
+    host.appendChild(pathChip);
+  }
+}
+
+/** Settings owns the controls; this only asks the app to show them. */
+async function openSettings() {
+  try {
+    // Relative URL only — a page served from loopback must never build an
+    // absolute origin, and the server refuses a foreign Origin anyway.
+    await fetch(`/api/settings/open?token=${encodeURIComponent(token)}`, { method: 'POST' });
+  } catch {
+    // Not being able to open a window changes nothing about the facts shown.
+  }
+}
+
+$('#openSettings').addEventListener('click', openSettings);
 
 function renderHistory() {
   const host = $('#history');

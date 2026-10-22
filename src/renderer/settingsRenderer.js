@@ -9,6 +9,7 @@ async function init() {
   loadAI();
   loadDictionary();
   loadStats();
+  loadPrivacy();
 }
 
 // ── Nav ──────────────────────────────────────────────────────────────────────
@@ -197,6 +198,28 @@ function loadStats() {
   document.getElementById('stat-words').textContent    = (st.words || 0).toLocaleString();
   document.getElementById('stat-sessions').textContent = (st.sessions || 0).toLocaleString();
   document.getElementById('stat-min').textContent      = Math.round((st.msSpoken || 0) / 60000).toLocaleString();
+}
+
+// ── Privacy & Data ────────────────────────────────────────────────────────────
+// This window owns the retention control (D-01); the dashboard only displays
+// the resulting facts. Saving goes through vf:set-retention, which clamps the
+// value and sweeps immediately, so the new window takes effect on this click.
+function loadPrivacy() {
+  const s = data.settings || {};
+  bindSelect('retentionDays', String(s.retentionDays || 0), async (value) => {
+    const result = await window.vf.setRetention(Number(value));
+    data.settings.retentionDays = result.retentionDays;
+    document.getElementById('retentionDays').value = String(result.retentionDays);
+    loadDataInfo();
+  });
+  loadDataInfo();
+}
+
+/** The resolved data folder, read-only — it is a fact, not a form field. */
+async function loadDataInfo() {
+  const info = await window.vf.dataInfo();
+  const el = document.getElementById('dataInfo');
+  if (el) el.textContent = info?.storeDir || '—';
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
