@@ -5,16 +5,16 @@ milestone_name: Public Launch
 current_phase: 1
 current_phase_name: Data Ownership
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-10-22T15:17:38Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-10-22T15:57:59Z"
 last_activity: 2026-10-22
-last_activity_desc: Phase 1 plan 02 executed (retention + audit ledger)
-state_head: f0707dcc034f146d593949ab2bf1023f3e0c6933
+last_activity_desc: Phase 1 plan 03 executed (export + storage relocation)
+state_head: 946bb4a1fbc20be4d4d47f2f2559b53b2568354d
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -30,26 +30,26 @@ See: .planning/PROJECT.md (updated 2026-10-22)
 
 Phase: 1 (Data Ownership) — EXECUTING
 Plan: 3 of 3
-Status: Executing Phase 1
-Last activity: 2026-10-22 — Phase 1 plan 02 executed (retention + audit ledger)
+Status: All plans executed — ready for phase verification
+Last activity: 2026-10-22 — Phase 1 plan 03 executed (export + storage relocation)
 
-Progress: [███████░░░] 67%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 57 min
-- Total execution time: 1.9 hours
+- Total plans completed: 3
+- Average duration: 49 min
+- Total execution time: 2.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Data Ownership | 2 | 114 min | 57 min |
+| 1. Data Ownership | 3 | 146 min | 49 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (24 min), 01-02 (90 min, includes a blocking-human checkpoint pause)
+- Last 5 plans: 01-01 (24 min), 01-02 (90 min, includes a blocking-human checkpoint pause), 01-03 (32 min, includes the D-14 decision pause)
 - Trend: -
 
 *Updated after each plan completion*
@@ -70,10 +70,14 @@ Recent decisions affecting current work:
 - Plan 01-02: D-11 resolved as `survives-with-invariant-test` — the ledger survives transcript deletion by construction (no transcript path opens the file), proven by a cross-path invariant test; `purgeEntry`/`clearAll` perform no ledger I/O and no count comparison.
 - Plan 01-02: retention is call-site driven (launch, after each dictation, on setting change) with keep-forever as the upgrade default; the sweep cuts history and persisted events at one cutoff and forgets both id sets from the live bus.
 - Plan 01-02: the audit ledger is an append-only `dictata-audit.ndjson` sidecar with a field allow-list; outcomes are exactly `pasted`/`failed` (a failed paste is `failed` + `errorKind: 'paste'`), cancels are not audited, and the count served to the UI is an in-memory counter.
+- Plan 01-03: D-14 resolved as `copy-verify-delete` — copy with `COPYFILE_EXCL`, verify parse + byte size + history count + ledger lines, commit the pointer, then delete the source. `fs.renameSync` is never used across directories.
+- Plan 01-03: the move journal records `move` while `dir` still names the source; `pendingDelete: [from]` is written only by the commit that follows a verified copy, so recovery can never verify the source against itself and delete it.
+- Plan 01-03: export is the one caller allowed to read the whole ledger; the audit projection never touches `text`/`raw`/`cleaned`, and CSV carries a BOM, CRLF rows and the OWASP formula guard.
+- Plan 01-03: `storeDir` is read from `store.file` on every request, and the `kind: 'storage'` info event (path-free) makes an open dashboard re-read `/api/state` once instead of polling.
 
 ### Pending Todos
 
-None yet.
+- Manual UAT for plan 01-03 (needs a Windows desktop): export a CSV and open it in Excel, move storage to a second drive or share, and kill the app between copy and pointer commit to confirm recovery.
 
 ### Blockers/Concerns
 
@@ -92,6 +96,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T14:43:31Z
-Stopped at: Completed 01-01-PLAN.md
-Resume file: .planning/phases/01-data-ownership/01-01-SUMMARY.md
+Last session: 2026-10-22T15:57:59Z
+Stopped at: Completed 01-03-PLAN.md
+Resume file: .planning/phases/01-data-ownership/01-03-SUMMARY.md

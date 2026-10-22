@@ -36,7 +36,7 @@ the offline switch and the data-flow document must be written after it exists, n
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Data Ownership** - Delete, expire, relocate, and export the dictation record from the dashboard
+- [x] **Phase 1: Data Ownership** - Delete, expire, relocate, and export the dictation record from the dashboard
 - [ ] **Phase 2: Trusted Distribution** - Signed installer, signed auto-update, first-run onboarding, visible versioning
 - [ ] **Phase 3: Provable Privacy** - Offline switch, published data-flow document, dashboard hardening, egress test
 - [ ] **Phase 4: Compliance Pack & Public Launch** - License, security policy, self-host guide, pilot pack, launch kit
@@ -57,7 +57,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 - [x] 01-01-PLAN.md - Delete one dictation and clear all history across every surface (DATA-01, DATA-02, DATA-03)
 - [x] 01-02-PLAN.md — Retention window plus the metadata-only audit ledger (DATA-05, COMP-01)
-- [ ] 01-03-PLAN.md — JSON/CSV history and audit export plus relocatable storage (DATA-04, COMP-01, COMP-02)
+- [x] 01-03-PLAN.md — JSON/CSV history and audit export plus relocatable storage (DATA-04, COMP-01, COMP-02)
 
 ### Phase 2: Trusted Distribution
 **Goal**: A non-developer can install, update, and complete first run on a clean Windows machine without a terminal, a manual download, or a developer on the phone.
@@ -103,7 +103,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Data Ownership | 2/3 | In progress | - |
+| 1. Data Ownership | 3/3 | Complete | 2026-10-22 |
 | 2. Trusted Distribution | 0/3 | Not started | - |
 | 3. Provable Privacy | 0/2 | Not started | - |
 | 4. Compliance Pack & Public Launch | 0/2 | Not started | - |

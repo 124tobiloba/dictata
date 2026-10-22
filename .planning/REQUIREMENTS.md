@@ -12,7 +12,7 @@ Requirements for the v1.0 public launch. Each maps to exactly one roadmap phase.
 - [ ] **DATA-01**: User can delete a single dictation from the dashboard history via an affordance that stays hidden until the row is hovered or clicked
 - [ ] **DATA-02**: User can clear the entire history from the dashboard, protected by an explicit confirmation step
 - [ ] **DATA-03**: Deleting a dictation removes it from history, the activity feed, analytics counts, and the in-app History window — with no resurrection after a restart
-- [ ] **DATA-04**: User can export the full history as JSON and as CSV
+- [x] **DATA-04**: User can export the full history as JSON and as CSV
 - [x] **DATA-05**: User can choose a retention window (30 / 90 / 365 days, or keep forever) and older transcripts are purged automatically
 
 ### Privacy
@@ -31,8 +31,8 @@ Requirements for the v1.0 public launch. Each maps to exactly one roadmap phase.
 
 ### Compliance
 
-- [ ] **COMP-01**: User can export an audit log containing timestamp, target app, duration, model, and outcome — never transcript text
-- [ ] **COMP-02**: User can point transcript storage at a different folder, including an encrypted or network-mounted volume
+- [x] **COMP-01**: User can export an audit log containing timestamp, target app, duration, model, and outcome — never transcript text
+- [x] **COMP-02**: User can point transcript storage at a different folder, including an encrypted or network-mounted volume
 - [ ] **COMP-03**: A self-host / BAA deployment guide explains how to run Dictata with no vendor data processing
 - [ ] **COMP-04**: Repository ships an MIT LICENSE, SECURITY.md with a disclosure process, and a contributing guide
 
@@ -90,10 +90,10 @@ Populated during roadmap creation (2026-10-22).
 | DATA-01 | Phase 1 — Data Ownership | Pending |
 | DATA-02 | Phase 1 — Data Ownership | Pending |
 | DATA-03 | Phase 1 — Data Ownership | Pending |
-| DATA-04 | Phase 1 — Data Ownership | Pending |
+| DATA-04 | Phase 1 — Data Ownership | Complete |
 | DATA-05 | Phase 1 — Data Ownership | Complete |
-| COMP-01 | Phase 1 — Data Ownership | Pending |
-| COMP-02 | Phase 1 — Data Ownership | Pending |
+| COMP-01 | Phase 1 — Data Ownership | Complete |
+| COMP-02 | Phase 1 — Data Ownership | Complete |
 | REL-01 | Phase 2 — Trusted Distribution | Pending |
 | REL-02 | Phase 2 — Trusted Distribution | Pending |
 | REL-03 | Phase 2 — Trusted Distribution | Pending |
