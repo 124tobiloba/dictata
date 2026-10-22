@@ -10,6 +10,7 @@ const crypto = require('crypto');
 
 const { computeStats } = require('./analytics');
 const { normalizeRetentionDays } = require('./retention');
+const { samePath } = require('./storage');
 
 const DEFAULTS = {
   settings: {
@@ -205,6 +206,10 @@ class Store {
    * @param {string} [opts.dir]          directory holding dictata.json
    * @param {string} [opts.file]         full path override (tests)
    * @param {string} [opts.userDataDir]  where the pre-rename file lives
+   * @param {string} [opts.defaultDir]   the always-present app-data folder;
+   *                                     when `dir` differs and the record is
+   *                                     absent the store becomes read-only
+   * @param {boolean} [opts.readonly]    force read-only (caller already knows)
    */
   constructor(opts = {}) {
     this.dir = opts.dir || app.getPath('userData');
@@ -219,15 +224,39 @@ class Store {
         if (!fs.existsSync(this.file) && fs.existsSync(legacy)) fs.copyFileSync(legacy, this.file);
       }
     } catch { /* start fresh rather than crash */ }
+    this.fileFound = false;
     this.data = this._load();
+
+    // A missing record is only a fresh install in the always-present app-data
+    // folder. At a relocated folder it means the drive/share is unavailable,
+    // and writing the empty in-memory default would overwrite the real record
+    // as soon as the location returns (CR-01). Refuse to write instead of
+    // guessing; the caller surfaces the reason and the remedy.
+    const defaultDir = opts.defaultDir || null;
+    const relocated = !!defaultDir && !samePath(this.dir, defaultDir);
+    this.readonly = opts.readonly === true || (relocated && !this.fileFound);
+    this._readonlyLogged = false;
+
     this._decrypted = false;
     this._writeTimer = null;
     this._recomputeStats();
   }
 
+  /**
+   * Read the record and record whether the file itself was found. A missing
+   * file and an unreadable/corrupt file are different: only the former means
+   * "the record may live somewhere this folder cannot currently see".
+   */
   _load() {
+    let raw;
     try {
-      return mergeDefaults(JSON.parse(fs.readFileSync(this.file, 'utf8')));
+      raw = fs.readFileSync(this.file, 'utf8');
+      this.fileFound = true;
+    } catch {
+      return mergeDefaults(null);
+    }
+    try {
+      return mergeDefaults(JSON.parse(raw));
     } catch {
       return mergeDefaults(null);
     }
@@ -244,6 +273,7 @@ class Store {
   }
 
   _save() {
+    if (this.readonly) return;   // the folder is unavailable; see the constructor
     clearTimeout(this._writeTimer);
     this._writeTimer = setTimeout(() => this._writeNow(), 150);
   }
@@ -257,6 +287,13 @@ class Store {
    * encrypted key would make it undecryptable on the next launch.
    */
   _writeNow() {
+    if (this.readonly) {
+      if (!this._readonlyLogged) {
+        this._readonlyLogged = true;
+        console.warn('[store] not writing — the dictation folder is unavailable:', this.dir);
+      }
+      return;
+    }
     this._ensureDecrypted();
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -325,6 +362,10 @@ class Store {
   getOrCreateToken() {
     if (this.data.dashboardToken) return this.data.dashboardToken;
     this.data.dashboardToken = crypto.randomBytes(16).toString('hex');
+    // `_save` is a no-op while the relocated folder is unavailable. The token
+    // is still created for this session so the dashboard can start, but it is
+    // never written over the record until the folder returns — the same guard
+    // that protects an unloaded record (CR-01).
     this._save();
     return this.data.dashboardToken;
   }

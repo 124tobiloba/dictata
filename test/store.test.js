@@ -281,6 +281,76 @@ test('an expired sweep is on disk before the call returns', () => {
   });
 });
 
+// ── CR-01: an unavailable relocated store must never be written ──────────────
+test('an unavailable relocated store never writes an empty record', () => {
+  // A user moved the record to a USB drive, then launched with the drive
+  // unplugged. The empty default must not be written over the real record
+  // when the drive returns.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictata-missing-'));
+  try {
+    const appData = path.join(root, 'appdata');
+    const moved = path.join(root, 'moved');
+    fs.mkdirSync(appData, { recursive: true });
+    fs.mkdirSync(moved, { recursive: true });
+
+    const store = new Store({ dir: moved, userDataDir: appData, defaultDir: appData });
+    assert.equal(store.readonly, true, 'a missing record at a relocated folder is read-only');
+    assert.equal(store.fileFound, false);
+
+    // Every write path the review identified: token save, a dictation, a
+    // settings change, and the unconditional before-quit flush.
+    store.getOrCreateToken();
+    store.addHistory({ id: 'ghost', cleaned: 'never written', raw: 'never written', words: 2, durationMs: 1, at: 1 });
+    store.updateSettings({ model: 'gemini-2.5-flash' });
+    store.flush();
+
+    assert.equal(fs.existsSync(path.join(moved, 'dictata.json')), false, 'no empty record may appear');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a first run in the default app-data folder stays writable', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictata-firstrun-'));
+  try {
+    const appData = path.join(root, 'appdata');
+    fs.mkdirSync(appData, { recursive: true });
+
+    const store = new Store({ dir: appData, userDataDir: appData, defaultDir: appData });
+    assert.equal(store.readonly, false, 'the default folder may legitimately be empty');
+    store.addHistory({ id: 'first', cleaned: 'first run', raw: 'first run', words: 2, durationMs: 1, at: 1 });
+    store.flush();
+
+    assert.ok(fs.existsSync(path.join(appData, 'dictata.json')));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a reachable relocated store is writable and keeps the real record', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dictata-reachable-'));
+  try {
+    const appData = path.join(root, 'appdata');
+    const moved = path.join(root, 'moved');
+    fs.mkdirSync(appData, { recursive: true });
+    fs.mkdirSync(moved, { recursive: true });
+    fs.writeFileSync(path.join(moved, 'dictata.json'), JSON.stringify({
+      settings: {},
+      history: [{ id: 'real', cleaned: 'the real record', raw: 'the real record', words: 3, durationMs: 1, at: 1 }],
+    }));
+
+    const store = new Store({ dir: moved, userDataDir: appData, defaultDir: appData });
+    assert.equal(store.readonly, false);
+    assert.equal(store.snapshot().history[0].id, 'real');
+
+    store.addHistory({ id: 'new', cleaned: 'second', raw: 'second', words: 1, durationMs: 1, at: 2 });
+    store.flush();
+    assert.ok(fs.existsSync(path.join(moved, 'dictata.json')));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('setFile points the record at the moved folder and writes there', () => {
   withTempDir((dir) => {
     const moved = path.join(dir, 'moved');

@@ -28,7 +28,7 @@ const { DashboardServer } = require('./dashboard');
 const { wordCount, lastTarget } = require('./analytics');
 const { normalizeRetentionDays, cutoffFor, splitExpired, splitExpiredEvents } = require('./retention');
 const { createLedger } = require('./ledger');
-const { createStorage } = require('./storage');
+const { createStorage, samePath } = require('./storage');
 const { toCsv, historyRows, auditRows } = require('./exporter');
 
 const IS_DEV = process.argv.includes('--dev');
@@ -83,10 +83,24 @@ let sessionId = 0;                              // bumped for every recording se
 // storage.json lives in app-data and decides where the record lives. Resolving
 // it before `new Store()` is what lets a moved record be read on the next
 // launch — and finishes or discards an interrupted move first (D-14).
-const storage = createStorage({ userDataDir: app.getPath('userData') });
+const defaultStoreDir = app.getPath('userData');
+const storage = createStorage({ userDataDir: defaultStoreDir });
 const resolvedStoreDir = storage.resolveStoreDir();
 
-const store = new Store({ dir: resolvedStoreDir, userDataDir: app.getPath('userData') });
+// CR-01: a relocated record that is not there is not a fresh install — the
+// drive is unplugged or the share has not mounted yet. Building a writable
+// store here would replace the real record with an empty default as soon as
+// the location returns, so the store is created read-only instead.
+const storeUnavailable = !samePath(resolvedStoreDir, defaultStoreDir)
+  && !fs.existsSync(path.join(resolvedStoreDir, 'dictata.json'));
+const STORE_UNAVAILABLE_MESSAGE = `Your dictation folder is unavailable (${resolvedStoreDir}) — reconnect it, then restart Dictata. Nothing will be saved until it is back.`;
+
+const store = new Store({
+  dir: resolvedStoreDir,
+  userDataDir: defaultStoreDir,
+  defaultDir: defaultStoreDir,
+  readonly: storeUnavailable,
+});
 // The audit ledger lives beside the store so a storage move takes it along
 // (plan 03), but nothing that deletes a transcript ever opens it (D-11).
 const ledger = createLedger({ file: path.join(resolvedStoreDir, 'dictata-audit.ndjson') });
@@ -123,6 +137,13 @@ rederiveLast();
 bus.on('event', (event) => {
   if (event.type === 'error' || event.type === 'info') store.addEvent(event);
 });
+
+// An unavailable relocated folder is the one startup condition a tray app
+// must not swallow: the user has to reconnect the drive before anything is
+// saved. Publish it so the dashboard feed carries the reason too.
+if (storeUnavailable) {
+  bus.publish('error', { message: STORE_UNAVAILABLE_MESSAGE, kind: 'storage', fatal: false });
+}
 
 let statusWindow = null;
 let settingsWindow = null;
@@ -161,7 +182,13 @@ app.whenReady().then(() => {
   applyLoginItem();
   applyRecorderLimits();
   startDashboard();
-  if (!getApiKey()) createSettingsWindow();   // first run: ask for the key
+  if (storeUnavailable) {
+    // Name the cause and the remedy, in the two places a tray app is seen.
+    notifyError(STORE_UNAVAILABLE_MESSAGE);
+    dialog.showErrorBox('Dictata — dictation folder unavailable', STORE_UNAVAILABLE_MESSAGE);
+  } else if (!getApiKey()) {
+    createSettingsWindow();   // first run: ask for the key
+  }
 });
 
 /** The local web dashboard that shows everything the app is doing. */
