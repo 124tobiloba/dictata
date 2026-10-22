@@ -44,6 +44,20 @@ function average(list) {
 }
 
 /**
+ * The single word rule: the stored count when present, else a recount.
+ *
+ * `computeStats` (the stored record) and `summarize` (the page) must use this
+ * same reduction or `lifetimeWords` can disagree with the page total on any
+ * row whose stored `words` is stale (D-06 / WR-04).
+ *
+ * @param {object} h  a history row
+ * @returns {number}
+ */
+function wordsOf(h) {
+  return Number.isFinite(h.words) ? h.words : wordCount(h.cleaned || h.raw);
+}
+
+/**
  * The totals that belong in the stored record.
  *
  * This is the single source of truth for `store.stats`: deleting or expiring a
@@ -56,10 +70,7 @@ function average(list) {
  */
 function computeStats(history = []) {
   const entries = history.filter(Boolean);
-  const words = entries.reduce(
-    (n, h) => n + (Number.isFinite(h.words) ? h.words : wordCount(h.cleaned || h.raw)),
-    0,
-  );
+  const words = entries.reduce((n, h) => n + wordsOf(h), 0);
   const msSpoken = entries.reduce((n, h) => n + (h.durationMs || 0), 0);
   return { words, sessions: entries.length, msSpoken };
 }
@@ -90,7 +101,7 @@ function summarize({ history = [], events = [], stats = {}, fallbackModel = null
   const entries = history.filter(Boolean);
   const modelOf = (h) => h.model || fallbackModel || 'unknown';
 
-  const words = entries.reduce((n, h) => n + wordCount(h.cleaned || h.raw), 0);
+  const words = entries.reduce((n, h) => n + wordsOf(h), 0);
   const msSpoken = entries.reduce((n, h) => n + (h.durationMs || 0), 0);
   const latencies = entries
     .map((h) => h.transcribeMs)
@@ -109,7 +120,7 @@ function summarize({ history = [], events = [], stats = {}, fallbackModel = null
     days.push({
       date: isoDate(start),
       label: new Date(start).toLocaleDateString(undefined, { weekday: 'short' }),
-      words: dayEntries.reduce((n, h) => n + wordCount(h.cleaned || h.raw), 0),
+      words: dayEntries.reduce((n, h) => n + wordsOf(h), 0),
       sessions: dayEntries.length,
     });
   }
@@ -158,7 +169,7 @@ function summarize({ history = [], events = [], stats = {}, fallbackModel = null
       avgLatencyMs: average(latencies),
       errors: errors.length,
       errorRate: attempts > 0 ? Math.round((errors.length / attempts) * 100) : 0,
-      todayWords: todayEntries.reduce((n, h) => n + wordCount(h.cleaned || h.raw), 0),
+      todayWords: todayEntries.reduce((n, h) => n + wordsOf(h), 0),
       todaySessions: todayEntries.length,
       lifetimeWords: stats.words || 0,
     },

@@ -69,6 +69,20 @@ test('computeStats agrees with the summary totals', () => {
   assert.equal(stats.msSpoken, 16000);
 });
 
+test('a stale stored word count cannot make the record and the page disagree', () => {
+  // D-06 / WR-04: `computeStats` and `summarize` must use one reduction.
+  // Stored `words: 2` deliberately disagrees with the five words of text.
+  const history = [entry({ cleaned: 'one two three four five', words: 2 })];
+  const stats = computeStats(history);
+  const page = summarize({ history, stats });
+
+  assert.equal(stats.words, 2, 'the stored count is the rule when present');
+  assert.equal(page.totals.words, 2, 'the page uses the same reduction');
+  assert.equal(page.totals.lifetimeWords, page.totals.words);
+  assert.equal(page.totals.todayWords, 2);
+  assert.equal(page.days.at(-1).words, 2, 'the per-day bucket agrees too');
+});
+
 test('computeStats is empty and safe with no history', () => {
   assert.deepEqual(computeStats(), { words: 0, sessions: 0, msSpoken: 0 });
   assert.deepEqual(computeStats([null, undefined]), { words: 0, sessions: 0, msSpoken: 0 });
