@@ -9,6 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { computeStats } = require('./analytics');
+const { normalizeRetentionDays } = require('./retention');
 
 const DEFAULTS = {
   settings: {
@@ -34,6 +35,7 @@ const DEFAULTS = {
     maxRecordingSec: 300,       // hard cap per dictation (seconds)
     dashboardEnabled: true,     // local web dashboard on http://127.0.0.1
     dashboardPort: 7788,
+    retentionDays: 0,           // 0 = keep forever (the upgrade default)
   },
   dictionary: [],               // [{ term, note? }]
   replacements: [],             // [{ from, to }]
@@ -138,12 +140,63 @@ function purgeEntryData(data, id) {
  * @param {object} data  a store document
  * @returns {number}  how many history rows were removed
  */
+/**
+ * Empty the transcript record only. Never rebuilds the document from the
+ * defaults: settings, the API key, dictionary, replacements and the dashboard
+ * token must survive a clear. Pure — unit-tested.
+ *
+ * @param {object} data  a store document
+ * @returns {number}  how many history rows were removed
+ */
 function clearAllData(data) {
   const removed = Array.isArray(data.history) ? data.history.length : 0;
   data.history = [];
   data.events = [];
   data.stats = { words: 0, sessions: 0, msSpoken: 0 };
   return removed;
+}
+
+/**
+ * Drop the history rows a retention sweep has already classified as expired.
+ * Pure — unit-tested.
+ *
+ * Stats are recomputed from the survivors with the same `computeStats` rule
+ * plan 01 established, so an expiry cannot make the counters drift. Persisted
+ * events are pruned separately by `pruneEventsData`: they carry their own
+ * timestamps and a failed attempt has no history row at all.
+ *
+ * @param {object} data  a store document
+ * @param {string[]} ids  expired history ids
+ * @returns {number}  how many history rows were removed
+ */
+function purgeExpiredData(data, ids) {
+  const expired = new Set(ids || []);
+  const history = Array.isArray(data.history) ? data.history : [];
+  const remaining = history.filter((h) => !h || !expired.has(h.id));
+
+  data.history = remaining;
+  data.stats = computeStats(remaining);
+
+  return history.length - remaining.length;
+}
+
+/**
+ * Drop persisted events older than the retention cutoff and re-apply the
+ * event cap. Pure — unit-tested.
+ *
+ * The cap re-apply is deliberate: the durable list is the only place the cap
+ * is enforced for rows written before this version, so a sweep keeps it honest
+ * even when nothing has expired yet.
+ *
+ * @param {object} data  a store document
+ * @param {number} cutoff
+ * @returns {number}  how many events were removed
+ */
+function pruneEventsData(data, cutoff) {
+  const events = Array.isArray(data.events) ? data.events : [];
+  const kept = events.filter((e) => e && (e.ts || 0) >= cutoff);
+  data.events = kept.slice(0, EVENT_LIMIT);
+  return events.length - data.events.length;
 }
 
 class Store {
@@ -240,6 +293,9 @@ class Store {
     if ('maxRecordingSec' in patch) {
       next.maxRecordingSec = Math.min(1800, Math.max(15, Number(patch.maxRecordingSec) || DEFAULTS.settings.maxRecordingSec));
     }
+    if ('retentionDays' in patch) {
+      next.retentionDays = normalizeRetentionDays(patch.retentionDays);
+    }
     this.data.settings = next;
     this._save();
     return next;
@@ -299,6 +355,32 @@ class Store {
     return removed;
   }
 
+  /**
+   * Remove history rows a retention sweep marked as expired. Writes the file
+   * before returning, exactly like a delete: a quit straight after the sweep
+   * cannot resurrect an expired row.
+   *
+   * @param {string[]} ids
+   * @returns {number}  how many rows were removed
+   */
+  purgeExpired(ids) {
+    const removed = purgeExpiredData(this.data, ids);
+    this.flush();
+    return removed;
+  }
+
+  /**
+   * Remove persisted events older than the cutoff and re-apply the event cap.
+   *
+   * @param {number} cutoff
+   * @returns {number}  how many events were removed
+   */
+  pruneEvents(cutoff) {
+    const removed = pruneEventsData(this.data, cutoff);
+    this.flush();
+    return removed;
+  }
+
   snapshot() {
     this._ensureDecrypted();
     return structuredClone(this.data);
@@ -313,4 +395,6 @@ module.exports = {
   decryptSecret,
   purgeEntryData,
   clearAllData,
+  purgeExpiredData,
+  pruneEventsData,
 };

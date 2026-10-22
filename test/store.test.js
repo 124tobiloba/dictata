@@ -12,6 +12,8 @@ const {
   decryptSecret,
   purgeEntryData,
   clearAllData,
+  purgeExpiredData,
+  pruneEventsData,
 } = require('../src/main/store');
 
 /** A store document shaped like the one on disk. */
@@ -206,5 +208,75 @@ test('a clear-all is on disk before the call returns', () => {
     assert.deepEqual(snap.events, []);
     assert.deepEqual(snap.stats, { words: 0, sessions: 0, msSpoken: 0 });
     assert.deepEqual(snap.dictionary, [{ term: 'npm' }]);
+  });
+});
+
+test('an existing install upgrades with retention set to keep forever', () => {
+  // A settings file written before retention existed must not start deleting
+  // anything: the missing key resolves to 0, which sweeps nothing.
+  const upgraded = mergeDefaults({ settings: { model: 'gemini-2.5-flash' } });
+  assert.equal(DEFAULTS.settings.retentionDays, 0);
+  assert.equal(upgraded.settings.retentionDays, 0);
+  assert.equal(upgraded.history.length, 0);
+});
+
+test('purging expired rows recomputes stats and touches nothing else', () => {
+  const data = doc();
+  const removed = purgeExpiredData(data, ['a']);
+
+  assert.equal(removed, 1);
+  assert.deepEqual(data.history.map((h) => h.id), ['b']);
+  assert.deepEqual(data.stats, { words: 2, sessions: 1, msSpoken: 2000 });
+  // The caller prunes events separately; this helper leaves them alone.
+  assert.deepEqual(data.events.map((e) => e.id), ['mhqk3z1a-0', 'b']);
+  assert.deepEqual(data.settings, { model: 'gemini-2.5-flash', apiKey: '' });
+  assert.equal(data.dashboardToken, 'token-123');
+  assert.deepEqual(data.dictionary, [{ term: 'npm' }]);
+  assert.deepEqual(data.replacements, [{ from: 'a', to: 'b' }]);
+});
+
+test('purging an unknown expired id removes nothing', () => {
+  const data = doc();
+  assert.equal(purgeExpiredData(data, ['nope']), 0);
+  assert.equal(data.history.length, 2);
+});
+
+test('pruning persisted events cuts by timestamp and keeps the rest', () => {
+  const data = doc();
+  const removed = pruneEventsData(data, 4);
+
+  assert.equal(removed, 2);
+  assert.deepEqual(data.events, []);
+  // The transcript is not this helper's business.
+  assert.equal(data.history.length, 2);
+  assert.deepEqual(data.settings, { model: 'gemini-2.5-flash', apiKey: '' });
+});
+
+test('pruning events re-applies the 500-entry cap', () => {
+  // Persisted events are newest-first, so the cap must drop the tail.
+  const events = [];
+  for (let i = 509; i >= 0; i--) events.push({ id: `e-${i}`, type: 'info', message: 'kept', ts: 5000 + i });
+  const data = doc({ events });
+
+  pruneEventsData(data, 0);
+  assert.equal(data.events.length, 500);
+  assert.equal(data.events[0].id, 'e-509');
+  assert.equal(data.events.at(-1).id, 'e-10');
+});
+
+test('an expired sweep is on disk before the call returns', () => {
+  withTempDir((dir) => {
+    const store = new Store({ dir });
+    store.addHistory({ id: 'old-row', cleaned: 'old', raw: 'old', words: 1, durationMs: 500, at: 1 });
+    store.addHistory({ id: 'new-row', cleaned: 'new', raw: 'new', words: 1, durationMs: 500, at: 2 });
+
+    assert.equal(store.purgeExpired(['old-row']), 1);
+
+    const onDisk = fs.readFileSync(path.join(dir, 'dictata.json'), 'utf8');
+    assert.equal(onDisk.includes('old-row'), false);
+
+    const snap = new Store({ dir }).snapshot();
+    assert.deepEqual(snap.history.map((h) => h.id), ['new-row']);
+    assert.deepEqual(snap.stats, { words: 1, sessions: 1, msSpoken: 500 });
   });
 });

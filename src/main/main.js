@@ -26,6 +26,7 @@ const { winHelper } = require('./winhelper');
 const { EventBus } = require('./events');
 const { DashboardServer } = require('./dashboard');
 const { wordCount, lastTarget } = require('./analytics');
+const { normalizeRetentionDays, cutoffFor, splitExpired, splitExpiredEvents } = require('./retention');
 
 const IS_DEV = process.argv.includes('--dev');
 const getApiKey = () => (store.settings.apiKey || '').trim() || process.env.GEMINI_API_KEY || '';
@@ -119,6 +120,12 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
+
+// Expired rows must be gone before anything can render them — including the
+// first /api/state after a restart. Keep-forever (the default) is a no-op, and
+// this runs after the single-instance lock so a second copy never rewrites the
+// record the running copy owns.
+sweepRetention();
 
 // A crash in a tray app is invisible — log it and keep running.
 process.on('uncaughtException', (err) => {
@@ -484,6 +491,9 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
     entry.pasted = pasted;
     entry.words = wordCount(entry.cleaned);
     store.addHistory(entry);
+    // Sweep before publishing: the new row must not appear in the feed next to
+    // an expired one. No timer runs this — it is call-site driven (D-05).
+    sweepRetention();
 
     console.log(`[pipeline] stop → pasted in ${Date.now() - tStart} ms`);
     bus.publish('dictation', {
@@ -632,6 +642,55 @@ function clearAll() {
   return removed;
 }
 
+// ── Retention ─────────────────────────────────────────────────────────────────
+/**
+ * Apply the retention window to everything that expires at once.
+ *
+ * Call-site driven (no timer): launch, after every dictation and when the
+ * setting changes. Two surfaces have to move together — the file and the live
+ * bus — or an expired row keeps appearing in /api/state and over SSE until the
+ * next restart.
+ *
+ * The audit ledger is deliberately exempt: audit facts outlive transcripts
+ * (D-11 / D-12) and only the explicit clear action shrinks them.
+ *
+ * @returns {number}  how many history rows were removed
+ */
+function sweepRetention() {
+  const days = normalizeRetentionDays(store.settings.retentionDays);
+  const cutoff = cutoffFor(days, Date.now());
+  if (cutoff === null) return 0;   // keep forever sweeps nothing
+
+  const snapshot = store.snapshot();
+  const history = snapshot.history || [];
+  const events = snapshot.events || [];
+
+  // One snapshot, both splitters: the history ids and the event ids have to be
+  // forgotten from the bus together, after the same cutoff.
+  const { expiredIds } = splitExpired(history, cutoff);
+  const { expiredIds: expiredEventIds } = splitExpiredEvents(events, cutoff);
+  const newestId = history[0]?.id;
+
+  const removed = expiredIds.length ? store.purgeExpired(expiredIds) : 0;
+  // The durable cut also re-applies the event cap, so it always runs.
+  store.pruneEvents(cutoff);
+  // Persisted events are rewritten above; the live buffer is what the feed
+  // actually reads, so expired failed attempts must be forgotten from it too.
+  bus.forgetMany([...expiredIds, ...expiredEventIds]);
+
+  if (newestId && expiredIds.includes(newestId)) rederiveLast();
+
+  if (removed) {
+    notifyHistory();
+    updateTrayMenu();
+    bus.publish('info', {
+      message: `Expired ${removed} dictation${removed === 1 ? '' : 's'} older than ${days} days`,
+      kind: 'history',
+    });
+  }
+  return removed;
+}
+
 // ── IPC from renderers ────────────────────────────────────────────────────────
 function setupIPC() {
   // Settings
@@ -645,6 +704,7 @@ function setupIPC() {
     if ('launchAtLogin' in patch) applyLoginItem();
     if ('maxRecordingSec' in patch) applyRecorderLimits();
     if (patch.shortcuts) hotkeys.reload();
+    if ('retentionDays' in patch) sweepRetention();
     if ('dashboardEnabled' in patch) {
       if (next.dashboardEnabled) startDashboard();
       else {
