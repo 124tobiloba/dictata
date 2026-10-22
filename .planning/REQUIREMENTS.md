@@ -13,7 +13,7 @@ Requirements for the v1.0 public launch. Each maps to exactly one roadmap phase.
 - [ ] **DATA-02**: User can clear the entire history from the dashboard, protected by an explicit confirmation step
 - [ ] **DATA-03**: Deleting a dictation removes it from history, the activity feed, analytics counts, and the in-app History window — with no resurrection after a restart
 - [ ] **DATA-04**: User can export the full history as JSON and as CSV
-- [ ] **DATA-05**: User can choose a retention window (30 / 90 / 365 days, or keep forever) and older transcripts are purged automatically
+- [x] **DATA-05**: User can choose a retention window (30 / 90 / 365 days, or keep forever) and older transcripts are purged automatically
 
 ### Privacy
 
@@ -91,7 +91,7 @@ Populated during roadmap creation (2026-10-22).
 | DATA-02 | Phase 1 — Data Ownership | Pending |
 | DATA-03 | Phase 1 — Data Ownership | Pending |
 | DATA-04 | Phase 1 — Data Ownership | Pending |
-| DATA-05 | Phase 1 — Data Ownership | Pending |
+| DATA-05 | Phase 1 — Data Ownership | Complete |
 | COMP-01 | Phase 1 — Data Ownership | Pending |
 | COMP-02 | Phase 1 — Data Ownership | Pending |
 | REL-01 | Phase 2 — Trusted Distribution | Pending |
