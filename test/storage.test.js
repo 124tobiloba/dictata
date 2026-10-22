@@ -426,6 +426,18 @@ test('a cleanup that cannot remove the partial copy keeps the journal for a retr
   }
 });
 
+test('the single-instance lock is taken before storage is resolved or mutated', () => {
+  // WR-02: resolveStoreDir() can commit a move and delete files. A second
+  // copy must exit before it can touch the pointer the running copy owns.
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8');
+  const lock = main.indexOf('requestSingleInstanceLock()');
+  const resolve = main.indexOf('storage.resolveStoreDir()');
+  const createStorageAt = main.indexOf('createStorage({');
+  assert.ok(lock !== -1 && resolve !== -1 && createStorageAt !== -1);
+  assert.ok(lock < createStorageAt, 'the lock must precede createStorage');
+  assert.ok(lock < resolve, 'the lock must precede resolveStoreDir');
+});
+
 test('a pendingDelete whose files are already gone does not throw and is cleared', () => {
   const { root, userData } = fixture();
   try {

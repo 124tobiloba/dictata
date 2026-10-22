@@ -68,6 +68,17 @@ function migrateUserData() {
 
 migrateUserData();
 
+// ── App lifecycle: one copy only ──────────────────────────────────────────────
+// Take the lock before anything resolves or mutates the store. `createStorage`
+// and `resolveStoreDir()` below can commit a move, rewrite storage.json and
+// delete files; a second launch must exit before it can touch the pointer the
+// running copy owns (WR-02).
+if (!app.requestSingleInstanceLock()) {
+  console.log('[dictata] Already running (check the system tray). Close it first, then run again.');
+  app.quit();
+  process.exit(0);
+}
+
 // ── State ────────────────────────────────────────────────────────────────────
 const STATE = { IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'processing' };
 let state = STATE.IDLE;
@@ -149,14 +160,6 @@ let statusWindow = null;
 let settingsWindow = null;
 let historyWindow = null;
 let tray = null;
-
-// ── App lifecycle ─────────────────────────────────────────────────────────────
-// Only one copy may run — a second copy can't get the hotkeys or cache folder.
-if (!app.requestSingleInstanceLock()) {
-  console.log('[dictata] Already running (check the system tray). Close it first, then run again.');
-  app.quit();
-  process.exit(0);
-}
 
 // Expired rows must be gone before anything can render them — including the
 // first /api/state after a restart. Keep-forever (the default) is a no-op, and
