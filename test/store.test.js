@@ -11,6 +11,7 @@ const {
   Store,
   decryptSecret,
   purgeEntryData,
+  clearAllData,
 } = require('../src/main/store');
 
 /** A store document shaped like the one on disk. */
@@ -167,5 +168,43 @@ test('flushing twice leaves the API key readable', () => {
 
     const reopened = new Store({ dir });
     assert.equal(decryptSecret(reopened.data.settings.apiKey), 'test-key-123');
+  });
+});
+
+test('clearAllData empties the record but keeps identity and settings', () => {
+  const data = doc();
+  const removed = clearAllData(data);
+
+  assert.equal(removed, 2);
+  assert.deepEqual(data.history, []);
+  assert.deepEqual(data.events, []);
+  assert.deepEqual(data.stats, { words: 0, sessions: 0, msSpoken: 0 });
+
+  // Nothing else may be rebuilt from the defaults.
+  assert.deepEqual(data.settings, { model: 'gemini-2.5-flash', apiKey: '' });
+  assert.equal(data.dashboardToken, 'token-123');
+  assert.deepEqual(data.dictionary, [{ term: 'npm' }]);
+  assert.deepEqual(data.replacements, [{ from: 'a', to: 'b' }]);
+});
+
+test('a clear-all is on disk before the call returns', () => {
+  withTempDir((dir) => {
+    const store = new Store({ dir });
+    store.addHistory({ id: 'row-1', cleaned: 'one', raw: 'one', words: 1, durationMs: 500, at: 1 });
+    store.addHistory({ id: 'row-2', cleaned: 'two', raw: 'two', words: 1, durationMs: 500, at: 2 });
+    store.setDictionary([{ term: 'npm' }]);
+
+    assert.equal(store.clearAll(), 2);
+
+    // No timer wait: the file is rewritten inside the mutation.
+    const onDisk = fs.readFileSync(path.join(dir, 'dictata.json'), 'utf8');
+    assert.equal(onDisk.includes('row-1'), false);
+    assert.equal(onDisk.includes('row-2'), false);
+
+    const snap = new Store({ dir }).snapshot();
+    assert.deepEqual(snap.history, []);
+    assert.deepEqual(snap.events, []);
+    assert.deepEqual(snap.stats, { words: 0, sessions: 0, msSpoken: 0 });
+    assert.deepEqual(snap.dictionary, [{ term: 'npm' }]);
   });
 });

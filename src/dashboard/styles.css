@@ -419,6 +419,15 @@ button { font: inherit; color: inherit; }
 /* ── History ─────────────────────────────────────────────────────────── */
 
 .panel-head { padding: 6px 4px 0; }
+.panel-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.panel-actions { display: flex; align-items: center; gap: 10px; padding-top: 6px; }
+.panel-actions .panel-sub { margin-top: 0; }
 .panel-title {
   font-family: var(--serif);
   font-size: clamp(28px, 3.4vw, 38px);

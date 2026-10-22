@@ -89,6 +89,7 @@ const dashboard = new DashboardServer({
   token: store.getOrCreateToken(),
   // Every surface deletes through the same main-process functions.
   onPurge: purgeEntry,
+  onClearAll: clearAll,
 });
 
 // The bus carries a little app state so the dashboard can render it.
@@ -96,6 +97,9 @@ bus.appState = 'idle';
 bus.handsFree = false;
 bus.startedAt = Date.now();
 bus.version = app.getVersion();
+
+// Paste-last starts from whatever survived on disk — never a stale pointer.
+rederiveLast();
 
 // Errors and notes are kept on disk so the dashboard has a history even
 // after a restart. Dictations live in the history array already.
@@ -149,6 +153,9 @@ async function startDashboard() {
 }
 
 app.on('before-quit', () => {
+  // Flush first: a delete inside the 150 ms save debounce must already be on
+  // disk before the process goes away.
+  store.flush();
   hotkeys.stop();
   recorder.cancel();
   winHelper.stop();
@@ -334,8 +341,14 @@ hotkeys.on('action', ({ action }) => {
 });
 
 hotkeys.on('paste-last', () => {
-  if (!lastCleaned) return;
-  pasteInto(lastCleaned).catch(console.error);
+  // Fall back to the surviving history, never to a deleted string.
+  let text = lastCleaned;
+  if (!text) {
+    const { cleaned, raw } = lastTarget(store.snapshot().history);
+    text = cleaned || raw;
+  }
+  if (!text) return;
+  pasteInto(text).catch(console.error);
 });
 
 function beginRecording() {
@@ -598,6 +611,27 @@ function purgeEntry(id) {
   return removed;
 }
 
+/**
+ * Delete every dictation and failed attempt. Settings, the API key, the
+ * dictionary and the dashboard token stay exactly as they were.
+ *
+ * @returns {number}  how many history rows were removed
+ */
+function clearAll() {
+  const removed = store.clearAll();
+  bus.forgetAll();
+  rederiveLast();
+  notifyHistory();
+  updateTrayMenu();
+  if (removed) {
+    bus.publish('info', {
+      message: `Cleared ${removed} dictation${removed === 1 ? '' : 's'}`,
+      kind: 'history',
+    });
+  }
+  return removed;
+}
+
 // ── IPC from renderers ────────────────────────────────────────────────────────
 function setupIPC() {
   // Settings
@@ -648,6 +682,6 @@ function setupIPC() {
 
   // History
   ipcMain.handle('vf:delete-history', (_e, id) => purgeEntry(id));
-  ipcMain.handle('vf:clear-history', () => store.clearHistory());
+  ipcMain.handle('vf:clear-history', () => clearAll());
   ipcMain.handle('vf:paste-entry', (_e, text) => pasteInto(text));
 }

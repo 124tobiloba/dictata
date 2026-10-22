@@ -2,7 +2,14 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { summarize, computeStats, wordCount, normalizeError } = require('../src/main/analytics');
+const {
+  summarize,
+  computeStats,
+  lastTarget,
+  wordCount,
+  normalizeError,
+} = require('../src/main/analytics');
+const { purgeEntryData } = require('../src/main/store');
 
 const HOUR = 3600000;
 const DAY = 86400000;
@@ -65,6 +72,33 @@ test('computeStats agrees with the summary totals', () => {
 test('computeStats is empty and safe with no history', () => {
   assert.deepEqual(computeStats(), { words: 0, sessions: 0, msSpoken: 0 });
   assert.deepEqual(computeStats([null, undefined]), { words: 0, sessions: 0, msSpoken: 0 });
+});
+
+test('lastTarget reads the newest surviving row', () => {
+  const history = [
+    { id: 'new', cleaned: 'newest text', raw: 'newest raw' },
+    { id: 'old', cleaned: 'older text', raw: 'older raw' },
+  ];
+  assert.deepEqual(lastTarget(history), { cleaned: 'newest text', raw: 'newest raw' });
+});
+
+test('lastTarget cannot replay a deleted row', () => {
+  // The automated half of "paste-last can never re-paste deleted text".
+  const data = {
+    history: [
+      { id: 'new', cleaned: 'newest text', raw: 'newest raw' },
+      { id: 'old', cleaned: 'older text', raw: 'older raw' },
+    ],
+    events: [],
+    stats: {},
+  };
+  purgeEntryData(data, 'new');
+  assert.deepEqual(lastTarget(data.history), { cleaned: 'older text', raw: 'older raw' });
+});
+
+test('lastTarget is empty when nothing survives', () => {
+  assert.deepEqual(lastTarget([]), { cleaned: '', raw: '' });
+  assert.deepEqual(lastTarget(), { cleaned: '', raw: '' });
 });
 
 test('counts errors and the error rate', () => {

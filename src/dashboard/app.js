@@ -26,6 +26,7 @@ const state = {
   levelTarget: 0,
   levelAt: 0,
   confirmId: null,   // row awaiting its inline delete confirmation
+  confirmClear: false,   // the clear-all control is waiting for a second click
   tab: 'live',
 };
 
@@ -322,6 +323,7 @@ function setTab(name, { focus = false } = {}) {
   if (!['live', 'history', 'insights'].includes(name)) name = 'live';
   state.tab = name;
   state.confirmId = null;
+  state.confirmClear = false;
 
   for (const panel of $$('.panel')) panel.hidden = panel.dataset.panel !== name;
   for (const tab of $$('.tab')) {
@@ -367,9 +369,31 @@ $('#history').addEventListener('click', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape' || !state.confirmId) return;
-  state.confirmId = null;
-  renderHistory();
+  if (event.key !== 'Escape') return;
+  if (state.confirmId) {
+    state.confirmId = null;
+    renderHistory();
+  }
+  if (state.confirmClear) {
+    state.confirmClear = false;
+    renderClearConfirm();
+  }
+});
+
+// Clear-all lives in the panel head, so it is wired once (not per render).
+$('#clearHistory').addEventListener('click', () => {
+  if (!state.confirmClear) {
+    state.confirmClear = true;
+    renderClearConfirm();
+    $('#clearCancel').focus();
+    return;
+  }
+  clearAllEntries();
+});
+
+$('#clearCancel').addEventListener('click', () => {
+  state.confirmClear = false;
+  renderClearConfirm();
 });
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -476,9 +500,42 @@ async function deleteRow(id) {
   }
 }
 
+/**
+ * The clear-all control's two states. The count comes from the dictation rows
+ * only (failed attempts are deleted too, but D-10 names dictations).
+ */
+function renderClearConfirm(entries = timeline()) {
+  const count = entries.filter((e) => e.type === 'dictation').length;
+  const label = $('#clearCount');
+  const cancel = $('#clearCancel');
+  const button = $('#clearHistory');
+  if (!label || !cancel || !button) return;
+
+  cancel.hidden = !state.confirmClear;
+  button.textContent = state.confirmClear ? 'Delete all' : 'Clear all';
+  label.textContent = state.confirmClear
+    ? `Delete all ${num(count)} dictation${count === 1 ? '' : 's'}?`
+    : '';
+}
+
+/** Delete every dictation and failed attempt, then reload the truth. */
+async function clearAllEntries() {
+  state.confirmClear = false;
+  try {
+    await fetch(`/api/history?token=${encodeURIComponent(token)}`, { method: 'DELETE' });
+  } catch {
+    // loadState() below is the authoritative answer either way.
+  }
+  state.history = [];
+  state.events = [];
+  renderAll();
+  await loadState();
+}
+
 function renderHistory() {
   const host = $('#history');
   const entries = timeline();
+  renderClearConfirm(entries);
 
   if (!entries.length) {
     host.innerHTML = state.connection === 'live'

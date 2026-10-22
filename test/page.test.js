@@ -106,3 +106,13 @@ test('the delete affordance is never removed from the tab order', () => {
     assert.doesNotMatch(body, /visibility:\s*hidden/, `${selector.trim()} hides the trash with visibility:hidden`);
   }
 });
+
+test('the clear-all control names the count before it deletes anything', () => {
+  assert.match(html, /id="clearHistory"/);
+  assert.match(html, /id="clearCancel"/);
+  assert.match(html, /id="clearCount"/);
+  // The confirmation state lives in the client state, not a DOM attribute.
+  assert.match(js, /confirmClear:\s*false/);
+  assert.match(js, /Delete all \$\{num\(count\)\} dictation/);
+  assert.match(js, /method:\s*'DELETE'/);
+});

@@ -207,6 +207,12 @@ class DashboardServer {
       return this._json(res, 200, this._state());
     }
 
+    if (req.method === 'DELETE' && pathname === '/api/history') {
+      if (!this._authorised(url)) return this._json(res, 401, { error: 'Bad token' });
+      const removed = await this.onClearAll();
+      return this._json(res, 200, { removed: Number(removed) || 0 });
+    }
+
     if (req.method === 'DELETE' && pathname.startsWith('/api/history/')) {
       if (!this._authorised(url)) return this._json(res, 401, { error: 'Bad token' });
       // Take the raw segment — never decode it. Decoding first would turn an

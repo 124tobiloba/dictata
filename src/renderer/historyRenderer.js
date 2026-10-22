@@ -3,6 +3,10 @@
 const list  = document.getElementById('list');
 const empty = document.getElementById('empty');
 
+// The last snapshot the main process pushed. Kept so the clear-all prompt can
+// name the count that is about to go.
+let lastHistory = [];
+
 async function init() {
   const data = await window.vf.getStore();
   render(data.history || []);
@@ -12,6 +16,7 @@ async function init() {
 function render(history) {
   const entries = list.querySelectorAll('.entry');
   entries.forEach((e) => e.remove());
+  lastHistory = history || [];
   empty.style.display = history.length ? 'none' : 'block';
 
   history.forEach((item) => {
@@ -44,8 +49,9 @@ function render(history) {
 
   list.querySelectorAll('.entry-btn.del').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      // No local DOM surgery: the main process pushes the authoritative
+      // vf:history-updated snapshot and render() rebuilds the list from it.
       await window.vf.deleteHistory(btn.dataset.id);
-      btn.closest('.entry').remove();
     });
   });
 }
@@ -56,9 +62,11 @@ window.toggleRaw = (id) => {
 };
 
 document.getElementById('btn-clear').addEventListener('click', async () => {
-  if (!confirm('Clear all dictation history?')) return;
+  const count = lastHistory.length;
+  if (!count) return;
+  // The prompt names the count; the push re-renders the empty list.
+  if (!confirm(`Delete all ${count} dictation${count === 1 ? '' : 's'}?`)) return;
   await window.vf.clearHistory();
-  render([]);
 });
 
 document.getElementById('btn-settings').addEventListener('click', () => {

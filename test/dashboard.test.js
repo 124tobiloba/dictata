@@ -286,3 +286,17 @@ test('a GET is never served as a delete', async () => {
   }, { onPurge: (id) => { seen.push(id); return 1; } });
   assert.deepEqual(seen, []);
 });
+
+test('clear-all needs the token and returns the callback count', async () => {
+  let calls = 0;
+  await withServer(async (server) => {
+    const unauth = await fetch(`${server.baseUrl}/api/history`, { method: 'DELETE' });
+    assert.equal(unauth.status, 401);
+    assert.equal(calls, 0, 'an unauthorised request never clears anything');
+
+    const res = await fetch(`${server.baseUrl}/api/history?token=${server.token}`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { removed: 3 });
+  }, { onClearAll: () => { calls++; return 3; } });
+  assert.equal(calls, 1);
+});
