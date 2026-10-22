@@ -213,6 +213,7 @@ function loadPrivacy() {
     loadDataInfo();
   });
   document.getElementById('clearAudit')?.addEventListener('click', clearAuditLog);
+  document.getElementById('changeStorage')?.addEventListener('click', changeStorage);
   document.getElementById('exportHistoryJson')?.addEventListener('click', () => runExport('history', 'json'));
   document.getElementById('exportHistoryCsv')?.addEventListener('click', () => runExport('history', 'csv'));
   document.getElementById('exportAuditJson')?.addEventListener('click', () => runExport('audit', 'json'));
@@ -223,9 +224,51 @@ function loadPrivacy() {
 /** The resolved data folder and the audit count, read-only — facts, not fields. */
 async function loadDataInfo() {
   const info = await window.vf.dataInfo();
-  const el = document.getElementById('dataInfo');
+  const el = document.getElementById('storagePath');
   if (el) el.textContent = info?.storeDir || '—';
   renderAuditCount(info?.auditCount);
+}
+
+/**
+ * Point storage at another folder. The main process validates the target,
+ * copies, verifies the copy and only then removes the old files; this window
+ * reports the result.
+ *
+ * A successful move writes the returned folder into `storagePath` BEFORE the
+ * message is shown, so the window that started the move cannot keep displaying
+ * the folder the record has already left.
+ */
+async function changeStorage() {
+  const status = document.getElementById('storageStatus');
+  if (status) status.textContent = 'Choose a folder…';
+
+  let target;
+  try {
+    target = await window.vf.chooseStorageDir();
+  } catch {
+    if (status) status.textContent = 'Could not open the folder picker — try again.';
+    return;
+  }
+  if (!target) {
+    if (status) status.textContent = 'No folder chosen — nothing was moved.';
+    return;
+  }
+
+  if (status) status.textContent = 'Moving dictations and verifying the copy…';
+  let result;
+  try {
+    result = await window.vf.moveStorage(target);
+  } catch {
+    if (status) status.textContent = 'The move failed — your record is still in its original folder.';
+    return;
+  }
+
+  if (result?.moved && result.dir) {
+    const field = document.getElementById('storagePath');
+    if (field) field.textContent = result.dir;
+    await loadDataInfo();
+  }
+  if (status) status.textContent = result?.message || (result?.moved ? 'Storage moved.' : 'Nothing was moved.');
 }
 
 function renderAuditCount(value) {

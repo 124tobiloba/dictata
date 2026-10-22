@@ -16,4 +16,6 @@ contextBridge.exposeInMainWorld('vf', {
   clearAudit: () => ipcRenderer.invoke('vf:clear-audit'),
   exportHistory: (format) => ipcRenderer.invoke('vf:export-history', format),
   exportAudit: (format) => ipcRenderer.invoke('vf:export-audit', format),
+  chooseStorageDir: () => ipcRenderer.invoke('vf:choose-storage-dir'),
+  moveStorage: (dir) => ipcRenderer.invoke('vf:move-storage', dir),
 });

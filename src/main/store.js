@@ -277,6 +277,19 @@ class Store {
     this._writeNow();
   }
 
+  /**
+   * Point the store at another file after a storage move. The directory moves
+   * with it; nothing else about the record changes, and the legacy
+   * `voice-flow.json` adoption stays anchored at app-data — never a moved
+   * directory.
+   *
+   * @param {string} nextFile
+   */
+  setFile(nextFile) {
+    this.file = nextFile;
+    this.dir = path.dirname(nextFile);
+  }
+
   /** Stats always describe the rows that are still in the record. */
   _recomputeStats() {
     this.data.stats = computeStats(this.data.history || []);

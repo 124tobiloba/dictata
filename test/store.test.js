@@ -280,3 +280,21 @@ test('an expired sweep is on disk before the call returns', () => {
     assert.deepEqual(snap.stats, { words: 1, sessions: 1, msSpoken: 500 });
   });
 });
+
+test('setFile points the record at the moved folder and writes there', () => {
+  withTempDir((dir) => {
+    const moved = path.join(dir, 'moved');
+    fs.mkdirSync(moved, { recursive: true });
+    const store = new Store({ dir });
+    store.addHistory({ id: 'row', cleaned: 'kept', raw: 'kept', words: 1, durationMs: 500, at: 1 });
+
+    store.setFile(path.join(moved, 'dictata.json'));
+    assert.equal(store.dir, moved);
+    store.flush();
+
+    assert.ok(fs.existsSync(path.join(moved, 'dictata.json')));
+    // Nothing is left behind in the folder the record came from.
+    assert.equal(fs.existsSync(path.join(dir, 'dictata.json')), false);
+    assert.deepEqual(new Store({ dir: moved }).snapshot().history.map((h) => h.id), ['row']);
+  });
+});

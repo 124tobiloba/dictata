@@ -491,12 +491,20 @@
             <option value="365">365 days</option>
           </select>
         </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Storage</div>
         <div class="row">
           <div>
-            <label>Data folder</label>
-            <div class="hint" id="dataInfo">—</div>
+            <label>Dictation folder</label>
+            <div class="hint" id="storagePath">—</div>
+            <div class="hint">Dictations and the audit log move together. The copy is verified before the old files are removed.</div>
           </div>
+          <button class="btn secondary" id="changeStorage">Change folder…</button>
         </div>
+        <div class="hint" id="storageStatus"></div>
+        <div class="hint">Logs stay in %APPDATA%\Dictata\logs wherever dictations live. The API key is encrypted for the current Windows user, so a moved record is not portable to another machine without re-entering the key. A folder outside the app's data folder survives uninstalling Dictata.</div>
       </div>
 
       <div class="section">

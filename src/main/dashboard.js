@@ -310,10 +310,23 @@ class DashboardServer {
         fallbackModel: settings.model || null,
       }),
       // Read-only facts (D-02). O(1) — the audit count is a cached number.
-      privacy: this.getPrivacyFacts ? this.getPrivacyFacts() : null,
+      privacy: this._privacyFacts(),
       history: snapshot.history,
       events,
     };
+  }
+
+  /**
+   * The facts the dashboard may display. `storeDir` is read from the store's
+   * current file on every call, never captured at construction, so a storage
+   * move is visible in the next /api/state without a restart.
+   */
+  _privacyFacts() {
+    if (!this.getPrivacyFacts) return null;
+    const facts = this.getPrivacyFacts();
+    if (!facts) return null;
+    const file = this.store && this.store.file;
+    return file ? { ...facts, storeDir: path.dirname(file) } : facts;
   }
 
   _events(req, res) {

@@ -2,6 +2,7 @@
 //   node --test "test/**/*.test.js"
 const test = require('node:test');
 const assert = require('node:assert');
+const path = require('node:path');
 
 const { EventBus } = require('../src/main/events');
 const { DashboardServer } = require('../src/main/dashboard');
@@ -320,6 +321,34 @@ test('without an injected source the privacy block is null, never invented', asy
     const data = await res.json();
     assert.equal(data.privacy, null);
   });
+});
+
+test('the privacy path follows the store after a move, without a restart', async () => {
+  // The facts come from the main process, but `storeDir` must be read from the
+  // store's current file on every call — a storage move must not leave the
+  // dashboard naming the folder the record has left.
+  const store = fakeStore();
+  store.file = 'C:\\one\\dictata.json';
+  const server = new DashboardServer({
+    store,
+    bus: new EventBus(),
+    port: 0,
+    getPrivacyFacts: () => ({ retentionDays: 0, storeDir: 'C:\\stale', auditCount: 3 }),
+  });
+  await server.start();
+  try {
+    let res = await fetch(`${server.baseUrl}/api/state?token=${server.token}`);
+    let data = await res.json();
+    assert.equal(data.privacy.storeDir, path.dirname(store.file));
+    assert.equal(data.privacy.auditCount, 3, 'the other facts pass through');
+
+    store.file = 'D:\\two\\dictata.json';   // storage.moveTo + setFile()
+    res = await fetch(`${server.baseUrl}/api/state?token=${server.token}`);
+    data = await res.json();
+    assert.equal(data.privacy.storeDir, path.dirname(store.file));
+  } finally {
+    server.stop();
+  }
 });
 
 test('opening settings without a token never reaches the callback', async () => {

@@ -28,6 +28,7 @@ const { DashboardServer } = require('./dashboard');
 const { wordCount, lastTarget } = require('./analytics');
 const { normalizeRetentionDays, cutoffFor, splitExpired, splitExpiredEvents } = require('./retention');
 const { createLedger } = require('./ledger');
+const { createStorage } = require('./storage');
 const { toCsv, historyRows, auditRows } = require('./exporter');
 
 const IS_DEV = process.argv.includes('--dev');
@@ -79,10 +80,16 @@ let activeAbort = null;                       // AbortController of the live req
 let sessionId = 0;                              // bumped for every recording session
 
 // ── Singletons ────────────────────────────────────────────────────────────────
-const store = new Store();
+// storage.json lives in app-data and decides where the record lives. Resolving
+// it before `new Store()` is what lets a moved record be read on the next
+// launch — and finishes or discards an interrupted move first (D-14).
+const storage = createStorage({ userDataDir: app.getPath('userData') });
+const resolvedStoreDir = storage.resolveStoreDir();
+
+const store = new Store({ dir: resolvedStoreDir, userDataDir: app.getPath('userData') });
 // The audit ledger lives beside the store so a storage move takes it along
 // (plan 03), but nothing that deletes a transcript ever opens it (D-11).
-const ledger = createLedger({ file: path.join(path.dirname(store.file), 'dictata-audit.ndjson') });
+const ledger = createLedger({ file: path.join(resolvedStoreDir, 'dictata-audit.ndjson') });
 const recorder = new Recorder();
 const hotkeys = new HotkeyService(store);
 const bus = new EventBus({ limit: 500 });
@@ -838,6 +845,44 @@ async function exportRecord(kind, format) {
   }
 }
 
+// ── Storage relocation ────────────────────────────────────────────────────────
+/**
+ * Point the record at another folder chosen in the native picker.
+ *
+ * The path string does come back from the renderer, so it is treated as
+ * untrusted: `storage.moveTo` owns every check (absolute, real path, a folder
+ * not a file, no containment, writability, COPYFILE_EXCL) and is the only
+ * validation path. Flushing first makes the copy the whole record.
+ *
+ * @param {string} target
+ * @returns {{moved: boolean, dir?: string, message: string}}
+ */
+function moveStorage(target) {
+  if (typeof target !== 'string' || !target.trim()) {
+    return { moved: false, message: 'Choose a folder first — nothing was moved.' };
+  }
+
+  store.flush();   // the copy must not race the 150 ms save debounce
+
+  const result = storage.moveTo(target);
+  if (!result.moved) return { moved: false, message: result.message };
+
+  const dir = result.dir;
+  store.setFile(path.join(dir, 'dictata.json'));
+  ledger.setFile(path.join(dir, 'dictata-audit.ndjson'));
+  store.flush();
+
+  // No path in the payload: the persisted event log is part of the record and
+  // must not learn the user's folder layout. The dashboard re-reads /api/state
+  // on this event (kind: 'storage').
+  bus.publish('info', {
+    message: 'Storage moved — dictations now save in the new folder.',
+    kind: 'storage',
+  });
+  updateTrayMenu();
+  return { moved: true, dir, message: `Dictations now save in ${dir}` };
+}
+
 // ── IPC from renderers ────────────────────────────────────────────────────────
 function setupIPC() {
   // Settings
@@ -894,6 +939,23 @@ function setupIPC() {
   // Exports go through a native save dialog; the renderer only names a format.
   ipcMain.handle('vf:export-history', (_e, format) => exportRecord('history', format));
   ipcMain.handle('vf:export-audit', (_e, format) => exportRecord('audit', format));
+
+  // Storage relocation (COMP-02). The window only chooses a folder in the
+  // native dialog; the path it hands back is untrusted input to moveTo.
+  ipcMain.handle('vf:choose-storage-dir', async () => {
+    const options = {
+      title: 'Choose a folder for your dictations',
+      properties: ['openDirectory', 'promptToCreate'],
+      defaultPath: storage.currentDir(),
+    };
+    const owner = settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : null;
+    const result = owner
+      ? await dialog.showOpenDialog(owner, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths || !result.filePaths.length) return null;
+    return result.filePaths[0];
+  });
+  ipcMain.handle('vf:move-storage', (_e, target) => moveStorage(target));
 
   // External links (e.g. Google AI Studio) open in the real browser
   ipcMain.handle('vf:open-external', (_e, url) => {

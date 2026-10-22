@@ -132,3 +132,52 @@ test('the dashboard states the retention policy as read-only facts', () => {
   assert.match(js, /\/api\/settings\/open\?token=\$\{encodeURIComponent\(token\)\}/);
   assert.match(js, /method:\s*'POST'/);
 });
+
+// ── Settings window markup ────────────────────────────────────────────────────
+// The second page in the app, checked the same way: no build step means a
+// typo'd id is a null dereference at runtime, and nothing else would catch it.
+const RENDERER_DIR = path.join(__dirname, '..', 'src', 'renderer');
+const settingsHtml = fs.readFileSync(path.join(RENDERER_DIR, 'settings.html'), 'utf8');
+const settingsJs = fs.readFileSync(path.join(RENDERER_DIR, 'settingsRenderer.js'), 'utf8');
+
+test('every element the settings window looks up exists in its markup', () => {
+  const ids = new Set([
+    ...[...settingsJs.matchAll(/getElementById\('([\w-]+)'\)/g)].map((m) => m[1]),
+    ...[...settingsJs.matchAll(/\b(?:bind|bindSelect|bindText|bindNumber)\('([\w-]+)'/g)].map((m) => m[1]),
+  ]);
+  assert.ok(ids.size > 18, `expected the window to look up many ids, found ${ids.size}`);
+
+  const missing = [...ids].filter((id) => !new RegExp(`id="${id}"`).test(settingsHtml));
+  assert.deepEqual(missing, [], `settingsRenderer.js references ids that settings.html does not define: ${missing.join(', ')}`);
+});
+
+test('every settings panel has a matching nav button', () => {
+  const navs = [...settingsHtml.matchAll(/data-panel="([\w-]+)"/g)].map((m) => m[1]);
+  assert.ok(navs.length >= 6, `expected the six settings sections, found ${navs.length}`);
+  for (const panel of navs) {
+    assert.match(settingsHtml, new RegExp(`id="panel-${panel}"`), `missing #panel-${panel}`);
+  }
+});
+
+test('the settings window exposes the storage folder and a way to change it', () => {
+  for (const id of ['storagePath', 'changeStorage', 'storageStatus']) {
+    assert.match(settingsHtml, new RegExp(`id="${id}"`), `missing #${id}`);
+  }
+  // The three facts the help copy has to state (D-15 and D-14).
+  assert.match(settingsHtml, /logs/i, 'logs stay in app data');
+  assert.match(settingsHtml, /current Windows user/i, 'the key is per-user');
+  assert.match(settingsHtml, /survives uninstall/i, 'a moved store outlives the app');
+});
+
+test('a move updates the folder on screen before it reports success', () => {
+  assert.match(settingsJs, /chooseStorageDir/);
+  assert.match(settingsJs, /moveStorage/);
+  // The window that started the move must not keep showing the old folder.
+  assert.match(settingsJs, /moved[\s\S]{0,400}textContent = result\.dir/);
+});
+
+test('an open dashboard tab follows a storage move without a reload', () => {
+  // The SSE info event carries kind: 'storage'; the client re-reads the
+  // authoritative state instead of polling for the new path.
+  assert.match(js, /kind === 'storage'[\s\S]{0,200}loadState\(\)/);
+});

@@ -261,6 +261,9 @@ function handleEvent(event) {
     renderHistory();
     renderStats();
     refreshAnalytics();
+    // A storage move changes the folder every surface names. Re-read the
+    // authoritative facts once — no polling loop for it.
+    if (event.type === 'info' && event.kind === 'storage') loadState();
   }
 }
 
