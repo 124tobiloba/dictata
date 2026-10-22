@@ -83,36 +83,42 @@ Deferred. Tracked, but not in the current roadmap.
 
 ## Traceability
 
-Populated during roadmap creation.
+Populated during roadmap creation (2026-10-22).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | — | Pending |
-| DATA-02 | — | Pending |
-| DATA-03 | — | Pending |
-| DATA-04 | — | Pending |
-| DATA-05 | — | Pending |
-| PRIV-01 | — | Pending |
-| PRIV-02 | — | Pending |
-| PRIV-03 | — | Pending |
-| PRIV-04 | — | Pending |
-| REL-01 | — | Pending |
-| REL-02 | — | Pending |
-| REL-03 | — | Pending |
-| REL-04 | — | Pending |
-| COMP-01 | — | Pending |
-| COMP-02 | — | Pending |
-| COMP-03 | — | Pending |
-| COMP-04 | — | Pending |
-| LAUN-01 | — | Pending |
-| LAUN-02 | — | Pending |
-| LAUN-03 | — | Pending |
+| DATA-01 | Phase 1 — Data Ownership | Pending |
+| DATA-02 | Phase 1 — Data Ownership | Pending |
+| DATA-03 | Phase 1 — Data Ownership | Pending |
+| DATA-04 | Phase 1 — Data Ownership | Pending |
+| DATA-05 | Phase 1 — Data Ownership | Pending |
+| COMP-01 | Phase 1 — Data Ownership | Pending |
+| COMP-02 | Phase 1 — Data Ownership | Pending |
+| REL-01 | Phase 2 — Trusted Distribution | Pending |
+| REL-02 | Phase 2 — Trusted Distribution | Pending |
+| REL-03 | Phase 2 — Trusted Distribution | Pending |
+| REL-04 | Phase 2 — Trusted Distribution | Pending |
+| PRIV-01 | Phase 3 — Provable Privacy | Pending |
+| PRIV-02 | Phase 3 — Provable Privacy | Pending |
+| PRIV-03 | Phase 3 — Provable Privacy | Pending |
+| PRIV-04 | Phase 3 — Provable Privacy | Pending |
+| COMP-03 | Phase 4 — Compliance Pack & Public Launch | Pending |
+| COMP-04 | Phase 4 — Compliance Pack & Public Launch | Pending |
+| LAUN-01 | Phase 4 — Compliance Pack & Public Launch | Pending |
+| LAUN-02 | Phase 4 — Compliance Pack & Public Launch | Pending |
+| LAUN-03 | Phase 4 — Compliance Pack & Public Launch | Pending |
 
 **Coverage:**
 - v1 requirements: 20 total
-- Mapped to phases: 0
-- Unmapped: 20 ⚠️
+- Mapped to phases: 20
+- Unmapped: 0 ✓
+
+**Per-phase counts:**
+- Phase 1 — Data Ownership: 7 (DATA-01…05, COMP-01, COMP-02)
+- Phase 2 — Trusted Distribution: 4 (REL-01…04)
+- Phase 3 — Provable Privacy: 4 (PRIV-01…04)
+- Phase 4 — Compliance Pack & Public Launch: 5 (COMP-03, COMP-04, LAUN-01…03)
 
 ---
 *Requirements defined: 2026-10-22*
-*Last updated: 2026-10-22 after initial definition*
+*Last updated: 2026-10-22 after roadmap creation*
