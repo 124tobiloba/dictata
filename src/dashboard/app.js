@@ -1,5 +1,5 @@
 /**
- * app.js — the Voice Flow dictation dashboard.
+ * app.js — the Dictata dictation dashboard.
  *
  * Vanilla JS, no build step. Talks to the app's local server:
  *   GET /api/state    → the current snapshot (history, analytics, events)

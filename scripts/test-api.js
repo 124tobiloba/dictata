@@ -45,7 +45,7 @@ async function run(model, label) {
 }
 
 (async () => {
-  console.log('\nVoice Flow — live API test\n');
+  console.log('\nDictata — live API test\n');
   console.log(`  default model : ${DEFAULT_MODEL}`);
   console.log(`  fallbacks     : ${FALLBACK_MODELS.join(', ')}\n`);
 

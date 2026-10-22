@@ -147,7 +147,7 @@ class WinHelper {
 
   /**
    * The foreground window: { hwnd, pid, self, name }.
-   * `self` is true when the foreground window belongs to Voice Flow itself.
+   * `self` is true when the foreground window belongs to Dictata itself.
    */
   async foregroundTarget() {
     const out = await this._cmd('target', 1500);

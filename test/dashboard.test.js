@@ -37,7 +37,7 @@ test('serves the dashboard page', async () => {
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type'), /text\/html/);
     const html = await res.text();
-    assert.match(html, /Voice Flow/);
+    assert.match(html, /Dictata/);
     // The three views the page offers.
     assert.match(html, /data-tab="live"/);
     assert.match(html, /data-tab="history"/);

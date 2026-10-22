@@ -2,7 +2,7 @@
  * logger.js — tiny file logger for the main process.
  *
  * Everything that goes through console.* is mirrored into
- * %APPDATA%/voice-flow/logs/voice-flow.log (rotated at 512 KB) so that
+ * %APPDATA%/Dictata/logs/dictata.log (rotated at 512 KB) so that
  * failures can be diagnosed after the fact — the app has no UI of its own
  * for reporting errors.
  */
@@ -19,7 +19,7 @@ function init(app) {
   try {
     const dir = app.getPath('logs');
     fs.mkdirSync(dir, { recursive: true });
-    logFile = path.join(dir, 'voice-flow.log');
+    logFile = path.join(dir, 'dictata.log');
   } catch (e) {
     logFile = null;
   }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Voice Flow — Settings</title>
+  <title>Dictata — Settings</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -251,7 +251,7 @@
 <body>
 <div class="layout">
   <nav>
-    <h1>⚡ Voice Flow</h1>
+    <h1>⚡ Dictata</h1>
     <button class="nav-btn active" data-panel="general">General</button>
     <button class="nav-btn" data-panel="shortcuts">Shortcuts</button>
     <button class="nav-btn" data-panel="ai">AI &amp; Style</button>
@@ -341,7 +341,7 @@
       <div class="section">
         <div class="section-title">Startup</div>
         <div class="row">
-          <div><label>Start with Windows</label><div class="hint">Launch Voice Flow when you log in</div></div>
+          <div><label>Start with Windows</label><div class="hint">Launch Dictata when you log in</div></div>
           <label class="toggle"><input type="checkbox" id="launchAtLogin"><span class="slider"></span></label>
         </div>
       </div>
@@ -359,7 +359,7 @@
       </div>
       <div class="section" style="color:var(--muted);font-size:13px;line-height:1.7">
         To change shortcuts, edit <kbd>shortcuts</kbd> in
-        <kbd>voice-flow.json</kbd> (in <kbd>%APPDATA%\voice-flow</kbd>) and restart the app.<br/>
+        <kbd>dictata.json</kbd> (in <kbd>%APPDATA%\Dictata</kbd>) and restart the app.<br/>
         Modifier names: <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Alt</kbd> <kbd>Meta</kbd> (Win key)<br/>
         Key names: any Electron accelerator key, e.g. <kbd>Space</kbd>, <kbd>F1</kbd>, <kbd>Backquote</kbd>
       </div>
@@ -392,7 +392,7 @@
             <option value="gemini-3.6-flash">Gemini 3.6 Flash (newest, sometimes slow)</option>
             <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (often at capacity)</option>
           </select>
-          <div class="hint">If a model is busy, Voice Flow automatically retries with the next one.</div>
+          <div class="hint">If a model is busy, Dictata automatically retries with the next one.</div>
         </div>
       </div>
 

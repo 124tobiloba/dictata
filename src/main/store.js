@@ -94,7 +94,12 @@ function mergeDefaults(raw) {
 
 class Store {
   constructor() {
-    this.file = path.join(app.getPath('userData'), 'voice-flow.json');
+    this.file = path.join(app.getPath('userData'), 'dictata.json');
+    // Defensive: adopt the pre-rename store if the migration did not run.
+    const legacy = path.join(app.getPath('userData'), 'voice-flow.json');
+    try {
+      if (!fs.existsSync(this.file) && fs.existsSync(legacy)) fs.copyFileSync(legacy, this.file);
+    } catch { /* start fresh rather than crash */ }
     this.data = this._load();
     this._decrypted = false;
     this._writeTimer = null;

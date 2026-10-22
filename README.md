@@ -1,9 +1,9 @@
-# Voice Flow
+# Dictata
 
 **Hold a hotkey, speak, and polished text appears wherever your cursor is.**
 A Windows voice-dictation app built with Electron and Google Gemini.
 
-Voice Flow records your microphone, sends the audio to Gemini in a single
+Dictata records your microphone, sends the audio to Gemini in a single
 streaming request that both transcribes *and* cleans up the text, then pastes
 the result straight into the app you were typing in.
 
@@ -92,7 +92,7 @@ hotkey ──► state machine (IDLE → LISTENING → PROCESSING)
 | `src/main/analytics.js` | Pure aggregation for the dashboard charts |
 | `src/main/dashboard.js` | The local web dashboard (node:http + SSE) |
 | `src/dashboard/` | The dashboard page (HTML/CSS/JS, no build step) |
-| `src/main/logger.js` | Rolling file log in `%APPDATA%/voice-flow/logs/` |
+| `src/main/logger.js` | Rolling file log in `%APPDATA%/Dictata/logs/` |
 | `src/renderer/status*` | Status pill + microphone capture |
 | `src/renderer/settings*` | Settings window |
 | `src/renderer/history*` | History window |
@@ -113,7 +113,7 @@ hotkey ──► state machine (IDLE → LISTENING → PROCESSING)
 
 ## Web dashboard
 
-Voice Flow serves a live activity dashboard on your own machine:
+Dictata serves a live activity dashboard on your own machine:
 
 ```
 http://127.0.0.1:7788/?token=…
@@ -216,7 +216,7 @@ restored afterwards. It closes Notepad when it is done.
 10. Open the dashboard (**tray → Open Dashboard**) while the app is running:
    **History** lists your dictations grouped by day, and dictating again makes
    a new row appear without reloading the page.
-11. Quit Voice Flow with the dashboard open — the page keeps its data and shows
+11. Quit Dictata with the dashboard open — the page keeps its data and shows
    "Lost the connection". Start it again — the banner clears on its own.
 12. Append `?token=wrong` to the dashboard URL — you get the full-page *fresh
    link* card, not an empty dashboard.
@@ -233,7 +233,7 @@ restored afterwards. It closes Notepad when it is done.
 Troubleshooting output is written to:
 
 ```
-%APPDATA%\voice-flow\logs\voice-flow.log
+%APPDATA%\Dictata\logs\dictata.log
 ```
 
 ## License

@@ -17,7 +17,7 @@ const { pasteText, readClipboardText } = require('../src/main/paste');
 const { winHelper } = require('../src/main/winhelper');
 
 const ORIGINAL = 'ORIGINAL-CLIPBOARD-CONTENT';
-const TEXT = 'Hello from Voice Flow';
+const TEXT = 'Hello from Dictata';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -28,7 +28,7 @@ function check(name, ok, detail = '') {
 }
 
 app.whenReady().then(async () => {
-  console.log('\nVoice Flow — paste pipeline test\n');
+  console.log('\nDictata — paste pipeline test\n');
   winHelper.start();
   await sleep(300);
 

@@ -14,6 +14,7 @@ require('dotenv').config();
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, session } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 
 const logger = require('./logger');
 const { Store } = require('./store');
@@ -28,6 +29,40 @@ const { wordCount } = require('./analytics');
 
 const IS_DEV = process.argv.includes('--dev');
 const getApiKey = () => (store.settings.apiKey || '').trim() || process.env.GEMINI_API_KEY || '';
+
+// ── Identity + one-time data migration ────────────────────────────────────────
+// The app used to be called "voice-flow". Its settings, API key, history and
+// dashboard token must survive the rename, and userData is pinned to one stable
+// folder in both dev runs and packaged builds.
+const USER_DATA_DIR = 'Dictata';
+const LEGACY_USER_DATA_DIR = 'voice-flow';
+
+function migrateUserData() {
+  try {
+    const appData = app.getPath('appData');           // %APPDATA%
+    const target = path.join(appData, USER_DATA_DIR);
+    const legacy = path.join(appData, LEGACY_USER_DATA_DIR);
+
+    app.setPath('userData', target);
+
+    // Already migrated, or a genuinely fresh install.
+    if (fs.existsSync(target) || !fs.existsSync(legacy)) return;
+
+    fs.cpSync(legacy, target, { recursive: true });
+    const oldStore = path.join(target, 'voice-flow.json');
+    const newStore = path.join(target, 'dictata.json');
+    if (fs.existsSync(oldStore) && !fs.existsSync(newStore)) fs.renameSync(oldStore, newStore);
+    const oldLog = path.join(target, 'logs', 'voice-flow.log');
+    const newLog = path.join(target, 'logs', 'dictata.log');
+    if (fs.existsSync(oldLog) && !fs.existsSync(newLog)) fs.renameSync(oldLog, newLog);
+    console.log('[dictata] migrated user data from', legacy);
+  } catch (e) {
+    // Never block startup on this — the store has its own fallback.
+    console.error('[dictata] user-data migration failed:', e.message);
+  }
+}
+
+migrateUserData();
 
 // ── State ────────────────────────────────────────────────────────────────────
 const STATE = { IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'processing' };
@@ -74,17 +109,17 @@ let tray = null;
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 // Only one copy may run — a second copy can't get the hotkeys or cache folder.
 if (!app.requestSingleInstanceLock()) {
-  console.log('[voice-flow] Already running (check the system tray). Close it first, then run again.');
+  console.log('[dictata] Already running (check the system tray). Close it first, then run again.');
   app.quit();
   process.exit(0);
 }
 
 // A crash in a tray app is invisible — log it and keep running.
 process.on('uncaughtException', (err) => {
-  console.error('[voice-flow] uncaught exception:', err);
+  console.error('[dictata] uncaught exception:', err);
 });
 process.on('unhandledRejection', (err) => {
-  console.error('[voice-flow] unhandled rejection:', err);
+  console.error('[dictata] unhandled rejection:', err);
 });
 
 app.whenReady().then(() => {
@@ -185,7 +220,7 @@ function createSettingsWindow() {
     height: 560,
     minWidth: 600,
     minHeight: 500,
-    title: 'Voice Flow Settings',
+    title: 'Dictata Settings',
     webPreferences: {
       preload: path.join(__dirname, '../renderer/settingsPreload.js'),
       contextIsolation: true,
@@ -209,7 +244,7 @@ async function createHistoryWindow() {
   historyWindow = new BrowserWindow({
     width: 580,
     height: 700,
-    title: 'Voice Flow History',
+    title: 'Dictata History',
     webPreferences: {
       preload: path.join(__dirname, '../renderer/historyPreload.js'),
       contextIsolation: true,
@@ -226,14 +261,14 @@ function createTray() {
     path.join(__dirname, '../../assets/tray-icon.png')
   ).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
-  tray.setToolTip('Voice Flow');
+  tray.setToolTip('Dictata');
   updateTrayMenu();
 }
 
 function updateTrayMenu() {
   const stats = store.snapshot().stats;
   tray?.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Voice Flow', enabled: false },
+    { label: 'Dictata', enabled: false },
     { type: 'separator' },
     { label: `${stats.words.toLocaleString()} words dictated`, enabled: false },
     { type: 'separator' },
@@ -260,7 +295,7 @@ async function openDashboard() {
 function notifyError(message) {
   try {
     tray?.displayBalloon?.({
-      title: 'Voice Flow',
+      title: 'Dictata',
       content: String(message).slice(0, 180),
     });
   } catch { /* not supported on this platform */ }
@@ -484,7 +519,7 @@ async function onRecordingDone({ wav, durationMs, timedOut }) {
 /**
  * Paste into the app the user was in. When one of our own windows has the
  * focus (e.g. the History window) the remembered target window is focused
- * first, so the text never lands in Voice Flow itself.
+ * first, so the text never lands in Dictata itself.
  */
 async function pasteInto(text) {
   const s = store.settings;
