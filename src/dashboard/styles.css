@@ -463,8 +463,10 @@ button { font: inherit; color: inherit; }
 .rec-text { font-size: 15px; line-height: 1.65; color: var(--ink); white-space: pre-wrap; }
 .rec-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
-/* The row's delete control. Task 2 makes it invisible until the row is hovered
-   or focused; it is always in the tab order, so it is never display:none. */
+/* The row's delete control: invisible at rest, revealed on row hover, row
+   focus (which includes a focused child) or its own keyboard focus. It stays
+   in the tab order — display:none / visibility:hidden would remove it from
+   both the tab order and the accessibility tree. */
 .rec-del {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0;
@@ -472,9 +474,49 @@ button { font: inherit; color: inherit; }
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
 }
 .rec-del svg { width: 15px; height: 15px; }
+.rec:hover .rec-del,
+.rec:focus-within .rec-del,
+.rec-del:focus-visible { opacity: 1; }
 .rec-del:hover { color: var(--orange); }
+.rec-del:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+/* Touch devices have no hover, so the affordance must always be visible. */
+@media (hover: none) {
+  .rec-del { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-del { transition: none; }
+}
+
+/* Two-step inline confirmation — no modal, no undo toast. */
+.rec.is-confirming { background: var(--page-2); }
+.rec-confirm {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  grid-column: 2 / -1;
+  font-size: 14px; color: var(--muted);
+}
+.rec-del-confirm,
+.rec-cancel {
+  font-size: 12.5px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.rec-del-confirm { color: var(--orange); border-color: var(--orange); }
+.rec-del-confirm:hover { background: var(--orange); color: var(--page); }
+.rec-del-confirm:focus-visible,
+.rec-cancel:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
 
 /* A failed attempt keeps its place in the timeline, like "Audio is silent". */
 .rec.is-problem { background: var(--page-2); }

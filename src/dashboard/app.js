@@ -25,6 +25,7 @@ const state = {
   level: 0,
   levelTarget: 0,
   levelAt: 0,
+  confirmId: null,   // row awaiting its inline delete confirmation
   tab: 'live',
 };
 
@@ -320,6 +321,7 @@ function labelFor(s) {
 function setTab(name, { focus = false } = {}) {
   if (!['live', 'history', 'insights'].includes(name)) name = 'live';
   state.tab = name;
+  state.confirmId = null;
 
   for (const panel of $$('.panel')) panel.hidden = panel.dataset.panel !== name;
   for (const tab of $$('.tab')) {
@@ -340,12 +342,34 @@ for (const tab of $$('.tab')) {
   tab.addEventListener('click', () => setTab(tab.dataset.tab));
 }
 
-// Rows are rebuilt on every render, so deletion is delegated from the mount.
+// Rows are rebuilt on every render, so the delete flow is delegated from the
+// mount. The confirmation lives in `state`, never in the DOM — the 5 s refresh
+// would otherwise wipe it out from under the cursor.
 $('#history').addEventListener('click', (event) => {
-  const btn = event.target.closest('.rec-del');
-  if (!btn) return;
-  const id = btn.dataset.id;
-  if (id) deleteRow(id);
+  const trash = event.target.closest('.rec-del');
+  if (trash) {
+    state.confirmId = trash.dataset.id || null;
+    renderHistory();
+    $('#history').querySelector('.rec-del-confirm')?.focus();
+    return;
+  }
+
+  const confirmBtn = event.target.closest('.rec-del-confirm');
+  if (confirmBtn) {
+    deleteRow(confirmBtn.dataset.id);
+    return;
+  }
+
+  if (event.target.closest('.rec-cancel')) {
+    state.confirmId = null;
+    renderHistory();
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || !state.confirmId) return;
+  state.confirmId = null;
+  renderHistory();
 });
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -421,8 +445,21 @@ function deleteButton(id) {
   </button>`;
 }
 
+/** The row turned into "Delete this dictation?" with its two answers. */
+function confirmRow(e) {
+  return `<div class="rec is-confirming">
+    <div class="rec-time">${fmtClock(e.ts)}</div>
+    <div class="rec-confirm">
+      <span>Delete this dictation?</span>
+      <button class="rec-del-confirm" type="button" data-id="${esc(e.id)}">Delete</button>
+      <button class="rec-cancel" type="button" data-id="${esc(e.id)}">Cancel</button>
+    </div>
+  </div>`;
+}
+
 /** Ask the app to delete one row, then re-render from the resulting state. */
 async function deleteRow(id) {
+  state.confirmId = null;
   try {
     const res = await fetch(`/api/history/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`, {
       method: 'DELETE',
@@ -462,6 +499,8 @@ function renderHistory() {
 
   for (const [, items] of groups) {
     const rows = items.map((e) => {
+      if (state.confirmId === e.id) return confirmRow(e);
+
       if (e.type === 'error') {
         return `<div class="rec is-problem">
           <div class="rec-time">${fmtClock(e.ts)}</div>

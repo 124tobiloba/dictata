@@ -79,3 +79,30 @@ test('a stale link gets a full-page explanation instead of an empty dashboard', 
   // ...and the retry loop must not paint the quieter banner back on top of it.
   assert.match(js, /if \(state\.connection !== 'offline'\) setConnection\('reconnecting'\)/);
 });
+
+test('the row delete affordance exists in both the client and the stylesheet', () => {
+  // Both row branches (dictation and failed attempt) render the control.
+  assert.match(js, /class="rec-del"/);
+  assert.match(js, /class="rec-del-confirm"/);
+  assert.match(js, /aria-label="Delete this dictation"/);
+  assert.match(css, /\.rec-del\s*\{/);
+  assert.match(css, /\.rec-del-confirm/);
+});
+
+test('the delete affordance is invisible at rest and revealed by hover or focus', () => {
+  assert.match(css, /\.rec-del\s*\{[^}]*opacity:\s*0/, 'the trash starts invisible');
+  assert.match(css, /\.rec:hover \.rec-del[^{]*\{[^}]*opacity:\s*1/, 'hover reveals it');
+  assert.match(css, /\.rec:focus-within \.rec-del[^{]*\{[^}]*opacity:\s*1/, 'row focus reveals it');
+  assert.match(css, /\.rec-del:focus-visible[^{]*\{[^}]*opacity:\s*1/, 'keyboard focus reveals it');
+
+  // Touch devices have no hover, so the control must always be visible there.
+  assert.match(css, /@media \(hover: none\)[\s\S]{0,160}\.rec-del\s*\{[^}]*opacity:\s*1/);
+});
+
+test('the delete affordance is never removed from the tab order', () => {
+  for (const match of css.matchAll(/([^{}]*\.rec-del[^{}]*)\{([^}]*)\}/g)) {
+    const [, selector, body] = match;
+    assert.doesNotMatch(body, /display:\s*none/, `${selector.trim()} hides the trash with display:none`);
+    assert.doesNotMatch(body, /visibility:\s*hidden/, `${selector.trim()} hides the trash with visibility:hidden`);
+  }
+});
