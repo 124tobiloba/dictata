@@ -55,6 +55,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. User can export an audit log containing timestamp, target app, duration, model, and outcome, and no transcript text appears anywhere in that file.
   5. User can choose a retention window (30 / 90 / 365 days, or keep forever) and point transcript storage at another folder, and entries past the window are gone from every surface after a restart.
 **Plans**: 3 plans
+- [ ] 01-01-PLAN.md — Delete one dictation and clear all history across every surface (DATA-01, DATA-02, DATA-03)
+- [ ] 01-02-PLAN.md — Retention window plus the metadata-only audit ledger (DATA-05, COMP-01)
+- [ ] 01-03-PLAN.md — JSON/CSV history and audit export plus relocatable storage (DATA-04, COMP-01, COMP-02)
 
 ### Phase 2: Trusted Distribution
 **Goal**: A non-developer can install, update, and complete first run on a clean Windows machine without a terminal, a manual download, or a developer on the phone.
