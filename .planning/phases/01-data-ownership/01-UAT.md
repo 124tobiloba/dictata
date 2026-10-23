@@ -1,19 +1,14 @@
 ---
-status: passed
+status: complete
 phase: 01-data-ownership
 source: [01-VERIFICATION.md]
 started: 2026-10-22T17:32:48Z
-updated: 2026-10-23T09:12:00Z
+updated: 2026-10-23T10:51:58.131Z
 ---
 
 ## Current Test
 
-number: 9
-name: Audit count lifecycle with a real key/microphone
-expected: |
-  A completed dictation adds exactly one audit row; a cancelled recording adds none;
-  deleting the dictation afterwards leaves the count unchanged.
-awaiting: complete
+[testing complete]
 
 ## Tests
 
