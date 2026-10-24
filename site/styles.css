@@ -465,6 +465,27 @@ kbd {
 .facts dt { color: var(--muted); font-size: 0.9rem; }
 .facts dd { margin: 0; font-size: 0.94rem; text-align: right; }
 
+.keybox {
+  margin-top: 28px;
+  background: var(--page-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 24px 24px 20px;
+}
+
+.keybox h3 { font-size: 1.1rem; }
+.keybox p { color: var(--ink-soft); font-size: 0.95rem; }
+
+.inline-link {
+  font-weight: 650;
+  font-size: 0.95rem;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(185, 80, 27, 0.35);
+}
+
+.inline-link:hover { border-bottom-color: var(--accent); }
+
 /* ── End CTA ─────────────────────────────────────────────────────────────── */
 
 .end {

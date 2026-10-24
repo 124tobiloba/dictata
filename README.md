@@ -9,6 +9,16 @@ the result straight into the app you were typing in.
 
 ---
 
+## Install
+
+Download the latest installer from the
+[releases page](https://github.com/124tobiloba/dictata/releases/latest) and run it.
+The installer contains **no API key** — Dictata asks for yours on first launch and
+stores it encrypted on your PC with Windows DPAPI.
+
+The build is not code-signed yet, so Windows SmartScreen will show "Unknown publisher".
+Choose **More info → Run anyway**.
+
 ## Features
 
 - **Push-to-talk** — one global shortcut to start and stop dictation.
