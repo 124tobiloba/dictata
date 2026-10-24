@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dictata — dictation that stays on your machine</title>
+<meta name="description" content="Hold a key, speak, and clean written text appears in whatever app has focus. Windows 10 and 11, your own Gemini key, no Dictata server in the middle.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="icon.png">
+<meta property="og:title" content="Dictata — dictation that stays on your machine">
+<meta property="og:description" content="Hold a key, speak, and clean written text appears in whatever app has focus. Bring your own Gemini key. Nothing routed through a Dictata server.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <a class="brand" href="/">
+    <img src="icon.png" alt="" width="28" height="28">
+    <span>Dictata</span>
+  </a>
+  <nav class="nav-links" aria-label="Sections">
+    <a href="#how">How it works</a>
+    <a href="#privacy">Privacy</a>
+    <a href="#dashboard">Dashboard</a>
+    <a href="https://github.com/124tobiloba/dictata" rel="noopener">GitHub</a>
+  </nav>
+  <a class="btn btn-sm" href="https://github.com/124tobiloba/dictata/releases/latest">Download</a>
+</header>
+
+<main>
+
+  <section class="hero">
+    <p class="eyebrow">Dictation for Windows</p>
+    <h1>Hold a key.<br>Speak. It&rsquo;s written.</h1>
+    <p class="lede">
+      Dictata turns your voice into clean, punctuated text in whatever app already has
+      focus &mdash; email, a case file, a terminal. No window to switch to, no copy and
+      paste, no Dictata account.
+    </p>
+    <div class="cta-row">
+      <a class="btn" href="https://github.com/124tobiloba/dictata/releases/latest">
+        Download for Windows
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/124tobiloba/dictata">
+        Read the source
+      </a>
+    </div>
+    <p class="fineprint">Windows 10 &amp; 11 &middot; Bring your own Gemini key &middot; MIT licensed</p>
+
+    <div class="stage" aria-hidden="true">
+      <div class="pill">
+        <span class="dot"></span>
+        <span class="bars">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </span>
+        <span class="pill-label">Listening</span>
+        <span class="pill-key">Alt + Shift + D</span>
+      </div>
+      <div class="doc">
+        <div class="doc-bar"><span class="doc-dot"></span><span class="doc-dot"></span><span class="doc-dot"></span><span class="doc-title">Case notes — draft</span></div>
+        <p>Client called on Tuesday to confirm the hearing date. <mark>She asked for the file to be sent before Friday,</mark><span class="caret"></span></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="section">
+    <p class="eyebrow">Three seconds, start to finish</p>
+    <h2>It behaves like a keyboard, not like a chatbot.</h2>
+    <div class="steps">
+      <article>
+        <span class="step-n">1</span>
+        <h3>Hold the key</h3>
+        <p>Press and hold your shortcut anywhere &mdash; <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> unless you change it. A small pill appears over the app you were using. Double-tap to lock it hands-free.</p>
+      </article>
+      <article>
+        <span class="step-n">2</span>
+        <h3>Say it plainly</h3>
+        <p>Speak naturally. Dictata removes the &ldquo;um&rdquo;s, fixes punctuation, and applies your dictionary of names and terms.</p>
+      </article>
+      <article>
+        <span class="step-n">3</span>
+        <h3>Let go</h3>
+        <p>The text is pasted into the field that had focus. Your clipboard is restored, and the app you were in is left exactly as it was.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="privacy" class="privacy">
+    <div class="privacy-inner">
+      <p class="eyebrow on-dark">The whole point</p>
+      <h2>Your words never leave your machine &mdash; except to the model you chose.</h2>
+      <p class="privacy-lede">
+        Dictata has no server of its own. Audio goes straight from your PC to the Gemini
+        endpoint that matches the API key you entered, and nowhere else. No analytics, no
+        telemetry, no &ldquo;sign in to continue&rdquo;.
+      </p>
+      <ul class="privacy-list">
+        <li><strong>Audio is not written to disk.</strong> It exists in memory only while you are holding the key.</li>
+        <li><strong>History lives in a folder you pick.</strong> Move it to another drive, a network share, or a folder your organisation already backs up.</li>
+        <li><strong>Deletion is deletion.</strong> Delete one dictation or all of them and every surface agrees it is gone.</li>
+        <li><strong>The audit trail outlives the text.</strong> Timestamp, target app, duration, model and outcome &mdash; never a transcript.</li>
+      </ul>
+      <p class="privacy-fine">
+        The one outbound connection is the model request. If you can read a network log,
+        you can verify it yourself &mdash; the source is MIT licensed.
+      </p>
+    </div>
+  </section>
+
+  <section id="dashboard" class="section">
+    <p class="eyebrow">Proof, not promises</p>
+    <h2>A dashboard you own.</h2>
+    <p class="section-lede">
+      The app ships a local dashboard at <code>127.0.0.1</code>. It shows what was said, how
+      long it took, where it landed, and whether the paste succeeded &mdash; and it is served
+      by your own copy of the app, not by us.
+    </p>
+    <div class="cards">
+      <article class="card">
+        <h3>Every dictation, accounted for</h3>
+        <p>Timing, model, target app and outcome for each attempt &mdash; including the ones that failed to paste.</p>
+      </article>
+      <article class="card">
+        <h3>Retention you set</h3>
+        <p>Keep forever or expire after a day, a week or a month. The sweep runs at launch and after each dictation.</p>
+      </article>
+      <article class="card">
+        <h3>Export in one click</h3>
+        <p>History and audit records as JSON or CSV, written by the native save dialog to wherever you choose.</p>
+      </article>
+      <article class="card">
+        <h3>No account, ever</h3>
+        <p>The dashboard is bound to localhost and unlocks with a token generated on this machine. There is nobody to sign in to.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section spec">
+    <div>
+      <h2>Built for people whose words are evidence.</h2>
+      <p class="section-lede">
+        Legal, medical, finance and public-sector teams dictate all day and cannot send
+        audio to a vendor they have not vetted. Dictata is the version they can defend:
+        your key, your folder, your delete button, your export.
+      </p>
+    </div>
+    <dl class="facts">
+      <div><dt>Platform</dt><dd>Windows 10 &amp; 11 (x64)</dd></div>
+      <div><dt>Model</dt><dd>Gemini, with your API key</dd></div>
+      <div><dt>Storage</dt><dd>Local JSON, folder of your choice</dd></div>
+      <div><dt>License</dt><dd>MIT for the core</dd></div>
+    </dl>
+  </section>
+
+  <section class="end">
+    <h2>Try it on one sentence.</h2>
+    <p>If the text does not land where you were already typing, it has not done its job.</p>
+    <a class="btn" href="https://github.com/124tobiloba/dictata/releases/latest">Download for Windows</a>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span>Dictata &middot; dictation that stays on your machine</span>
+  <nav aria-label="Footer">
+    <a href="https://github.com/124tobiloba/dictata">GitHub</a>
+    <a href="https://github.com/124tobiloba/dictata#readme">Documentation</a>
+    <a href="https://github.com/124tobiloba/dictata/blob/main/LICENSE">MIT license</a>
+  </nav>
+</footer>
+
+</body>
+</html>
