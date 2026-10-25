@@ -5,3 +5,4 @@ out/
 *.log
 .opencode/
 .planning/milestone.lock
+.vercel/
