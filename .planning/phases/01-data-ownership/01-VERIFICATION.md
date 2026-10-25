@@ -1,47 +1,20 @@
 ---
 phase: 01-data-ownership
 verified: 2026-10-22T17:32:48Z
-status: human_needed
+status: passed
 score: 19/19 must-haves verified
 covered_files: [".planning/phases/01-data-ownership/01-01-PLAN.md", ".planning/phases/01-data-ownership/01-01-SUMMARY.md", ".planning/phases/01-data-ownership/01-02-PLAN.md", ".planning/phases/01-data-ownership/01-02-SUMMARY.md", ".planning/phases/01-data-ownership/01-03-PLAN.md", ".planning/phases/01-data-ownership/01-03-SUMMARY.md", "src/dashboard/app.js", "src/dashboard/index.html", "src/dashboard/styles.css", "src/main/analytics.js", "src/main/dashboard.js", "src/main/events.js", "src/main/exporter.js", "src/main/ledger.js", "src/main/main.js", "src/main/retention.js", "src/main/storage.js", "src/main/store.js", "src/renderer/historyRenderer.js", "src/renderer/settings.html", "src/renderer/settingsPreload.js", "src/renderer/settingsRenderer.js", "test/analytics.test.js", "test/dashboard.test.js", "test/events.test.js", "test/exporter.test.js", "test/ledger.test.js", "test/page.test.js", "test/retention.test.js", "test/storage.test.js", "test/store.test.js"]
 covered_digest: "v3:sha256:fd917f69cb1b7178dbe0303ffa854d259da8c57f5ad0e7f05a6e3586e08a3c0e"
 behavior_unverified: 0
 overrides_applied: 0
-human_verification:
-  - test: "Open the dashboard, hover a history row and Tab to it, then activate the trash control and complete or cancel the inline confirm"
-    expected: "The trash icon is invisible at rest, appears on row hover/row focus/keyboard focus, the row becomes 'Delete this dictation?' with Delete/Cancel, Escape cancels, and the row disappears immediately on Delete — on both a dictation row and a failed-attempt row"
-    why_human: "Hover reveal, focus styling and the two-step interaction are visual/keyboard behaviours in a live browser; the static rules and the delete path are asserted, the feel is not"
-  - test: "Delete a row on the dashboard, quit Dictata from the tray immediately, relaunch, and open the dashboard and the in-app History window"
-    expected: "The row is absent from history, the activity feed, Insights totals and the History window after the restart"
-    why_human: "Needs the packaged Electron app, the tray and a quit inside the save window; the flush contract is covered by a same-tick file read in test/store.test.js"
-  - test: "Click Clear all, read the confirmation, cancel, then confirm; restart and open every surface"
-    expected: "The prompt names the number of dictations; after confirmation the dashboard, feed, analytics totals and History window show no dictations, and they stay empty after a restart while settings, the API key, dictionary and dashboard token survive"
-    why_human: "The count-naming copy and the cross-surface visual result need a human; the store mutation and its on-disk result are covered by tests"
-  - test: "Delete the newest dictation, focus another application, press the paste-last shortcut (Alt+Shift+V by default)"
-    expected: "The surviving newest dictation is pasted, or nothing is pasted when history is empty — the deleted text never appears"
-    why_human: "Requires the running app, a real global shortcut and a target window; test/analytics.test.js proves lastTarget only returns surviving rows"
-  - test: "From Settings, export the history as CSV and as JSON through the native save dialog, then open both files"
-    expected: "One row per dictation with every transcript and its metadata intact; the CSV opens in Excel with accents intact, ISO timestamps and no shifted columns, and a transcript beginning '=SUM' displays as a literal string without executing"
-    why_human: "The native save dialog and Excel's handling of BOM/quoting cannot be exercised headlessly"
-  - test: "Export the audit log as CSV and JSON, then search both files for a word from a known transcript"
-    expected: "Zero matches; each row contains timestamp, target app, duration, model and outcome (pasted/failed), plus id/words/errorKind"
-    why_human: "Confirms the real save-dialog output a compliance reviewer would receive; the projection is unit-tested but the file is produced only by the running app"
-  - test: "Move storage to a second drive or a mapped network share via Change folder…, dictate once, restart Dictata, then reopen the dashboard with a tab already open"
-    expected: "The record and audit ledger move together; after restart the app reads the new folder, the old folder holds no dictata.json, no second copy remains, and both Settings and the already-open dashboard tab show the new path without a reload"
-    why_human: "Requires a real native folder picker, a cross-volume copy and a restart; the copy/verify/commit/delete contract is covered by temp-directory tests"
-  - test: "Kill the app between the copy and the pointer commit, relaunch, then retry the same target folder"
-    expected: "The record is still readable (source kept when the target was partial, target adopted when it verified), the journal completes without a second copy, and the retry succeeds instead of being refused because a partial file is present"
-    why_human: "A true process kill at the exact window needs the running app; the seeded journal cases are covered by test/storage.test.js"
-  - test: "Dictate once with a real key, cancel a recording, delete a dictation, then open the audit count in Settings"
-    expected: "The audit count rises by one only for the completed/failed attempt, does not change for the cancel, and does not change when the transcript is deleted"
-    why_human: "Needs a microphone and a real Gemini key; the append/vocabulary/invariant rules are unit-tested"
 ---
 
 # Phase 1: Data Ownership Verification Report
 
 **Phase Goal:** A regulated user can remove, expire, relocate, and export their dictation record from the dashboard — and every surface agrees on what remains.
 **Verified:** 2026-10-22T17:32:48Z
-**Status:** human_needed
+**Status:** passed
+**Human verification:** 9/9 passed on 2026-10-23 — see 01-UAT.md
 **Re-verification:** No — initial verification (no previous VERIFICATION.md existed)
 
 **Mode:** mvp (ROADMAP.md `Mode: mvp`). This is not a literal User Story sentence, so the MVP
@@ -212,68 +185,28 @@ No planned mitigation was missing from code.
 ### Gaps Summary
 
 None. All 19 must-have truths, 5 roadmap success criteria and 7 requirement IDs are met by code,
-with passing automated evidence. The remaining items are human checks that need the packaged
-Electron app, a microphone/real Gemini key, native dialogs, or a second drive/share.
+with passing automated evidence. The nine human checks that needed the packaged Electron app, a
+microphone/real Gemini key, native dialogs or a second drive/share were executed on 2026-10-23 and
+all passed (`01-UAT.md`); no item remains open.
 
 ---
 
-### Human Verification Required
+### Human Verification
 
-#### 1. Hidden delete affordance and inline confirmation (visual/keyboard)
+Executed on 2026-10-23 in the packaged app; all nine passed. Per-test evidence lives in
+`.planning/phases/01-data-ownership/01-UAT.md`.
 
-**Test:** Open the dashboard history tab, hover a row, Tab to a row, activate the trash control,
-then use Delete and Cancel; repeat on a failed-attempt row.
-**Expected:** Invisible at rest; appears on hover/row focus/keyboard focus; row becomes
-"Delete this dictation?" with Delete/Cancel; Escape cancels; Delete removes it immediately.
-**Why human:** Hover reveal and focus behaviour are only observable in a live browser.
-
-#### 2. Delete → immediate quit → relaunch
-
-**Test:** Delete a row and quit from the tray immediately; relaunch and check every surface.
-**Expected:** The row is gone from history, feed, Insights and the History window.
-**Why human:** Needs the packaged app and a real quit inside the debounce window.
-
-#### 3. Clear-all confirmation and cross-surface zero
-
-**Test:** Click Clear all and read/cancel/confirm the prompt, then restart.
-**Expected:** Prompt names N dictations; afterwards every surface shows none, settings/key/dictionary/token intact.
-**Why human:** Copy wording and visual agreement across surfaces.
-
-#### 4. Paste-last after deleting the newest dictation
-
-**Test:** Delete the newest row, focus another app, press Alt+Shift+V.
-**Expected:** The surviving newest dictation pastes; nothing when empty; never the deleted text.
-**Why human:** Requires the global shortcut and a real target window.
-
-#### 5. History export through the native save dialog + Excel
-
-**Test:** Export history CSV and JSON from Settings, open both.
-**Expected:** Every transcript and metadata intact; Excel shows correct accents/columns; `=SUM` text is literal.
-**Why human:** Native dialog and Excel rendering.
-
-#### 6. Audit export contains no transcript text
-
-**Test:** Export audit CSV/JSON and search for a word from a known transcript.
-**Expected:** Zero matches; rows carry timestamp, target app, duration, model, outcome.
-**Why human:** Inspecting the real compliance hand-off file.
-
-#### 7. Real storage move (second drive / network share) + restart + open dashboard tab
-
-**Test:** Change folder to a second drive/share, dictate once, restart, keep a dashboard tab open.
-**Expected:** Store + ledger move; restart reads the new folder; no second copy; both surfaces show the new path without reload.
-**Why human:** Native picker, cross-volume copy, restart, live tab.
-
-#### 8. Kill mid-move and retry the same folder
-
-**Test:** Kill the app between copy and commit; relaunch; retry the same folder.
-**Expected:** Record readable; journal completes without a second copy; retry succeeds.
-**Why human:** Requires a true process kill at the window.
-
-#### 9. Audit count lifecycle with a real key/microphone
-
-**Test:** Dictate once, cancel a recording, delete the dictation; watch the audit count.
-**Expected:** +1 for the completed attempt, unchanged for the cancel, unchanged by the deletion.
-**Why human:** Needs microphone and a real Gemini key.
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Hidden delete affordance and inline confirmation (visual/keyboard) | pass |
+| 2 | Delete → immediate quit → relaunch | pass |
+| 3 | Clear-all confirmation and cross-surface zero | pass |
+| 4 | Paste-last after deleting the newest dictation | pass |
+| 5 | History export through the native save dialog + Excel | pass |
+| 6 | Audit export contains no transcript text | pass |
+| 7 | Real storage move (second drive / network share) + restart + open dashboard tab | pass |
+| 8 | Kill mid-move and retry the same folder | pass |
+| 9 | Audit count lifecycle with a real key/microphone | pass |
 
 ---
 
