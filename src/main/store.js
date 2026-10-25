@@ -22,7 +22,7 @@ const DEFAULTS = {
       pasteLast:  ['Alt', 'Shift', 'V'],   // V = Voice-paste — re-paste last text
     },
     doubleTapLocks: true,       // double-tap push-to-talk => hands-free
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.8-flash',
     style: 'polished',          // polished | casual | verbatim
     appAwareStyle: true,        // adapt tone to the focused app
     language: 'auto',
@@ -55,6 +55,9 @@ const SECRET_PREFIX = 'enc:';
 /** Encrypt a secret for storage. Falls back to plain text if unavailable. */
 function encryptSecret(plain) {
   if (!plain) return '';
+  // Already encrypted. Writing a value that was never decrypted (see
+  // _ensureDecrypted) must not wrap it a second time, or the key is lost.
+  if (plain.startsWith(SECRET_PREFIX)) return plain;
   try {
     if (safeStorage.isEncryptionAvailable()) {
       return SECRET_PREFIX + safeStorage.encryptString(plain).toString('base64');
@@ -80,7 +83,7 @@ function decryptSecret(stored) {
 /** Merge a stored file over the defaults. Pure — unit-tested. */
 function mergeDefaults(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
-  return {
+  const merged = {
     ...DEFAULTS,
     ...src,
     settings: {
@@ -95,6 +98,13 @@ function mergeDefaults(raw) {
     dashboardToken: src.dashboardToken || '',
     stats: { ...DEFAULTS.stats, ...(src.stats || {}) },
   };
+  // Model ids retire. A file written by an older build must not keep pointing
+  // at one: every request would 404 and the dropdown would render blank. All
+  // supported models are 3.x, so anything else gets the current default.
+  if (!/^gemini-3\./.test(merged.settings.model || '')) {
+    merged.settings.model = DEFAULTS.settings.model;
+  }
+  return merged;
 }
 
 /**
@@ -264,11 +274,25 @@ class Store {
 
   _ensureDecrypted() {
     if (this._decrypted) return;
-    this._decrypted = true;
+    // The dashboard port is read at module load, before app.whenReady(). On
+    // Windows safeStorage cannot decrypt until then; caching that failure
+    // replaced the key with '' in memory, and the next save wrote the empty
+    // value over the only copy on disk. Wait for ready instead.
+    if (!app?.isReady?.()) return;
+    const stored = this.data.settings.apiKey || '';
+    if (!stored.startsWith(SECRET_PREFIX)) {
+      this._decrypted = true;
+      return;
+    }
     try {
-      this.data.settings.apiKey = decryptSecret(this.data.settings.apiKey || '');
+      this.data.settings.apiKey = safeStorage.decryptString(
+        Buffer.from(stored.slice(SECRET_PREFIX.length), 'base64')
+      );
+      this._decrypted = true;
     } catch (e) {
-      console.warn('[store]', e.message);
+      // Corrupt blob or another Windows user's key. Keep the ciphertext so a
+      // later launch can still read it; never overwrite it with nothing.
+      console.warn('[store] could not decrypt the API key:', e.message);
     }
   }
 

@@ -10,11 +10,15 @@
  * The push-to-talk / hands-free interaction rules live in ./ptt.js.
  */
 
-require('dotenv').config();
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, session, dialog } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
+
+// Development convenience only. An installed copy must never pick up a stray
+// .env from whatever folder it happens to be launched in — that would silently
+// substitute someone else's key for the one the user pasted.
+if (!app.isPackaged) require('dotenv').config();
 
 const logger = require('./logger');
 const { Store } = require('./store');
@@ -78,6 +82,16 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
+
+// Double-clicking the shortcut while Dictata is already in the tray used to end
+// with a silent exit and no window at all. Give the second launch a visible
+// result: the key prompt if the app still needs one, otherwise the dashboard.
+app.on('second-instance', () => {
+  app.whenReady().then(() => {
+    if (!getApiKey()) createSettingsWindow();
+    else openDashboard();
+  });
+});
 
 // ── State ────────────────────────────────────────────────────────────────────
 const STATE = { IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'processing' };

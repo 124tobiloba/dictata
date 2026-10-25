@@ -1,6 +1,6 @@
 {
   "name": "dictata",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Dictata — hold a hotkey, speak, and polished text appears wherever your cursor is. Powered by Gemini.",
   "main": "src/main/main.js",
   "scripts": {
@@ -54,7 +54,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
       "installerIcon": "assets/icon.ico",
-      "shortcutName": "Dictata"
+      "shortcutName": "Dictata",
+      "include": "build/installer.nsh"
     },
     "extraMetadata": {
       "main": "src/main/main.js"

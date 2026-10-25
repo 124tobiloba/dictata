@@ -15,17 +15,25 @@ const https = require('https');
 const { SseParser } = require('./sse');
 
 const HOST = 'generativelanguage.googleapis.com';
-// Capacity on the newest models is unreliable: they regularly take 20-30 s
-// or stop answering altogether. 2.5-flash is consistently fast right now,
-// so it is the default and the first entry of the fallback chain.
-const DEFAULT_MODEL = 'gemini-2.5-flash';
-const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.6-flash'];
+// Google retires model ids for new API keys. A retired default is worse than a
+// slow one: every new user sees "key broken" on their first dictation. 2.5 is
+// gone for new keys; 3.8 is the API's recommendation but is capacity-limited
+// right now (503) and rejects thinkingLevel "minimal", so 3.6 leads the chain
+// and 3.8 is the last resort.
+const DEFAULT_MODEL = 'gemini-3.6-flash';
+const FALLBACK_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.8-flash',
+];
 const TIMEOUT_MS = 30000;        // per request
 const TOTAL_BUDGET_MS = 60000;  // for the whole model chain
 const MAX_OUTPUT_TOKENS = 4096;
 
-// Models Google has retired for new keys → map to a working one.
-const RETIRED = /^gemini-(1\.[0-9]|2\.0|pro-vision)/;
+// Models Google has retired for new keys → map to a working one. 2.5-flash was
+// retired in 2026: the API answers "no longer available to new users".
+const RETIRED = /^gemini-(1\.[0-9]|2\.[0-5]|pro-vision)/;
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 // The model echoing our instruction back means it heard no speech.
 const ECHO = /^transcribe this recording now\.?$/i;
@@ -35,10 +43,27 @@ function resolveModel(model) {
   return model;
 }
 
-/** thinkingLevel is only understood by the Gemini 3.x models. */
+/**
+ * Thinking level per model, or null when the model does not take one.
+ *
+ * This cannot be inferred from the version number: 3.8-flash accepts "low" but
+ * answers 400 to "minimal", which is not retryable and would fail the whole
+ * dictation instead of falling back. 3.5/3.6 accept "minimal" (the cheapest).
+ */
+const THINKING_LEVEL = new Map([
+  ['gemini-3.6-flash', 'minimal'],
+  ['gemini-3.5-flash', 'minimal'],
+  ['gemini-3.5-flash-lite', 'minimal'],
+  ['gemini-3.8-flash', 'low'],
+]);
+
+function thinkingLevelFor(model) {
+  return THINKING_LEVEL.get(model) || null;
+}
+
+/** True when this model accepts a thinkingConfig from us. */
 function supportsThinkingLevel(model) {
-  const m = /^gemini-(\d+)\./.exec(model || '');
-  return m ? Number(m[1]) >= 3 : false;
+  return thinkingLevelFor(model) !== null;
 }
 
 /**
@@ -49,6 +74,7 @@ function supportsThinkingLevel(model) {
  * model." — a 400 that no retry can fix.
  */
 function buildRequestBody({ model, wavBase64, systemPrompt }) {
+  const level = thinkingLevelFor(model);
   return JSON.stringify({
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{
@@ -61,9 +87,7 @@ function buildRequestBody({ model, wavBase64, systemPrompt }) {
     generationConfig: {
       temperature: 0.1,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
-      ...(supportsThinkingLevel(model)
-        ? { thinkingConfig: { thinkingLevel: 'minimal' } }
-        : {}),
+      ...(level ? { thinkingConfig: { thinkingLevel: level } } : {}),
     },
   });
 }
@@ -294,13 +318,12 @@ function sleep(ms) {
 /** Quick key check for the Settings "Test" button. */
 function testKey(apiKey) {
   if (!apiKey) return Promise.resolve({ ok: false, message: 'No key entered' });
+  const level = thinkingLevelFor(DEFAULT_MODEL);
   const body = JSON.stringify({
     contents: [{ parts: [{ text: 'Reply with OK' }] }],
     generationConfig: {
       maxOutputTokens: 5,
-      ...(supportsThinkingLevel(DEFAULT_MODEL)
-        ? { thinkingConfig: { thinkingLevel: 'minimal' } }
-        : {}),
+      ...(level ? { thinkingConfig: { thinkingLevel: level } } : {}),
     },
   });
   // The same model chain as a real dictation — a busy model must not make
@@ -315,6 +338,10 @@ function testKey(apiKey) {
         return { ok: true, message: 'Key works ✓' };
       } catch (err) {
         lastErr = err;
+        // 404 means this model is gone for this key, not that the key is bad.
+        // Walking on is the whole point of the chain: the default can be
+        // retired at any time while the older 3.x models still answer.
+        if (err?.status === 404) continue;
         if (!isRetryable(err)) break;
       }
     }
@@ -324,5 +351,5 @@ function testKey(apiKey) {
 
 module.exports = {
   transcribe, testKey, resolveModel, buildSystemPrompt, buildRequestBody,
-  supportsThinkingLevel, DEFAULT_MODEL, FALLBACK_MODELS,
+  thinkingLevelFor, supportsThinkingLevel, DEFAULT_MODEL, FALLBACK_MODELS,
 };

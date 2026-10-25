@@ -10,6 +10,7 @@ const {
   DEFAULTS,
   Store,
   decryptSecret,
+  encryptSecret,
   purgeEntryData,
   clearAllData,
   purgeExpiredData,
@@ -66,6 +67,18 @@ test('stored values win over the defaults', () => {
   assert.equal(s.settings.sounds, false);
   // untouched keys keep their default
   assert.equal(s.settings.language, DEFAULTS.settings.language);
+});
+
+test('a retired model in an existing file is replaced by the current default', () => {
+  // 2.5-flash 404s for new keys; keeping it means the dropdown renders blank
+  // and every dictation fails with a model error.
+  assert.equal(mergeDefaults({ settings: { model: 'gemini-2.5-flash' } }).settings.model,
+    DEFAULTS.settings.model);
+  assert.equal(mergeDefaults({ settings: { model: 'gemini-1.5-pro' } }).settings.model,
+    DEFAULTS.settings.model);
+  // A current choice survives, so users who picked a model keep it.
+  assert.equal(mergeDefaults({ settings: { model: 'gemini-3.5-flash-lite' } }).settings.model,
+    'gemini-3.5-flash-lite');
 });
 
 test('shortcuts are merged, not replaced', () => {
@@ -171,6 +184,12 @@ test('flushing twice leaves the API key readable', () => {
     const reopened = new Store({ dir });
     assert.equal(decryptSecret(reopened.data.settings.apiKey), 'test-key-123');
   });
+});
+
+test('an already encrypted value is never wrapped twice', () => {
+  // A save can run before safeStorage is ready, while the stored ciphertext is
+  // still in memory. Wrapping it again would make the key unreadable forever.
+  assert.equal(encryptSecret('enc:AAAA'), 'enc:AAAA');
 });
 
 test('clearAllData empties the record but keeps identity and settings', () => {

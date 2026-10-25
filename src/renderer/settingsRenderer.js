@@ -358,12 +358,32 @@ function loadApiKey(s) {
   const toggleBtn = document.getElementById('toggleKeyVis');
   const link = document.getElementById('aiStudioLink');
 
+  const hadKey = Boolean((s.apiKey || '').trim());
+  let guided = false;
+
   inp.value = s.apiKey || '';
 
   let timer;
   inp.addEventListener('input', () => {
     clearTimeout(timer);
-    timer = setTimeout(() => save({ apiKey: inp.value.trim() }), 400);
+    timer = setTimeout(async () => {
+      const key = inp.value.trim();
+      await save({ apiKey: key });
+      // First run: the moment the empty key field becomes a real key is where a
+      // new user expects the app to continue. Verify it first, then open the
+      // dashboard — a typo should keep them here with the reason instead of
+      // dropping them into an app that cannot dictate.
+      if (!hadKey && !guided && key) {
+        guided = true;
+        status.textContent = 'Checking your key…';
+        status.style.color = 'var(--muted)';
+        const r = await window.vf.testKey(key);
+        status.textContent = r.ok ? `${r.message} Opening your dashboard…` : r.message;
+        status.style.color = r.ok ? 'var(--green)' : '#fc8181';
+        if (r.ok) window.vf.openDashboard();
+        else guided = false;   // let them correct it and try again
+      }
+    }, 400);
   });
 
   toggleBtn.addEventListener('click', () => {
