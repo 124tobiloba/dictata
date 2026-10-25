@@ -143,6 +143,10 @@ async function transcribe(opts) {
       } catch (err) {
         lastErr = err;
         if (err?.message === 'Cancelled') throw err;
+        // 404 = this model is retired for this key. A stored model can be
+        // retired at any time, so move to the next one instead of failing the
+        // whole dictation. 400 / 401 / 403 still fail fast.
+        if (err?.status === 404) break;
         if (!isRetryable(err)) throw err;        // 400 / 401 / 403 → fail fast
         console.warn(`[gemini] ${candidate}: ${err.message}`);
         const timedOut = /timed out/i.test(err.message);
